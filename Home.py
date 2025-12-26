@@ -436,17 +436,21 @@ def load_css():
 load_css()
 
 # ==========================================
-# 2. KONFIGURASI PATHS & EMITEN
+# 2. KONFIGURASI PATHS & EMITEN (FIX FOR DEPLOYMENT)
 # ==========================================
 
-# Base directory paths
-BASE_MODEL_PATH = r"D:\Akademik ITS\RISET & SKRIPSI\STREAMLIT\skripsi_dashboard_hana2\models"
-BASE_DATA_PATH = r"D:\Akademik ITS\RISET & SKRIPSI\STREAMLIT\skripsi_dashboard_hana2\data"
+# Menggunakan Path Relatif agar jalan di Laptop & Streamlit Cloud
+# os.path.dirname... akan mengambil lokasi folder tempat Home.py berada
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+BASE_MODEL_PATH = os.path.join(BASE_DIR, "models")
+BASE_DATA_PATH = os.path.join(BASE_DIR, "data")
 
 # Daftar Emiten yang valid
 EMITEN_LIST = ["AKRA", "BBRI", "BMRI", "PGAS", "UNVR"]
 
 # Dictionary untuk mapping semua file path
+# Menggunakan os.path.join agar slash (/) atau backslash (\) otomatis menyesuaikan OS (Windows/Linux)
 FILES = {
     "data": {
         "main": os.path.join(BASE_DATA_PATH, "df_fusi_multimodal_final_hana.csv"),
@@ -467,9 +471,6 @@ FILES = {
         "UNVR": os.path.join(BASE_MODEL_PATH, "scaler_UNVR.pkl"),
     }
 }
-
-# Verifikasi sederhana apakah file path ada (Optional, untuk debugging di console)
-print("Konfigurasi Path Selesai. Siap Melanjutkan.")
 
 # ==========================================
 # 3. DATA LOADING & PROCESSING FUNCTIONS (PERBAIKAN)
