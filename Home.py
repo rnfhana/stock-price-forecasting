@@ -615,7 +615,7 @@ def show_forecast_simulator(df):
     st.markdown(f"""
     <div class='page-header'>
         <h2>Forecast Simulator: {selected_ticker}</h2>
-        <p>Prediksi Harga Saham H+1 Menggunakan GRU Fusion Model</p>
+        <p>Prediksi Harga Saham 3 Hari Ke Depan (Recursive Forecasting)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -624,91 +624,120 @@ def show_forecast_simulator(df):
     scaler = load_specific_scaler(selected_ticker)
 
     if df_ticker.empty or model is None or scaler is None:
-        st.error("Data, Model, atau Scaler tidak ditemukan. Periksa path file.")
+        st.error("Data, Model, atau Scaler tidak ditemukan.")
         return
 
     st.markdown("""
     <div class="info-box">
-        <h3>ℹ️ Model Architecture: GRU Fusion</h3>
-        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal.
-        Input dipisahkan menjadi <strong>Quantitative</strong> (Harga/Indikator) dan <strong>Qualitative</strong> (Sentimen).</p>
+        <h3>ℹ️ Skenario Prediksi 3 Hari</h3>
+        <p>Model memprediksi H+1. Untuk mendapatkan H+2 dan H+3, sistem menggunakan hasil prediksi sebelumnya sebagai input baru (metode <em>Rolling Forecast</em>).</p>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        predict_btn = st.button("🚀 Jalankan Prediksi (Predict Next Day)", use_container_width=True)
+        predict_btn = st.button("🚀 Jalankan Prediksi (3 Days Horizon)", use_container_width=True)
 
     if predict_btn:
-        with st.spinner('Sedang memproses data Fusi (Quant + Sentiment)...'):
+        with st.spinner('Menghitung prediksi berjenjang...'):
             try:
-                WINDOW_SIZE = 60 
-                # 1. Ambil 12 Fitur (Sudah bersih dari Yt+1)
-                input_data = prepare_inputs(df_ticker, window_size=WINDOW_SIZE)
+                WINDOW_SIZE = 60
                 
-                if len(input_data) < WINDOW_SIZE:
-                    st.error(f"Data kurang dari {WINDOW_SIZE} hari.")
-                    return
-
-                # 2. Scaling (Menghasilkan 12 fitur terskala)
-                input_scaled = scaler.transform(input_data)
-                
-                # 3. Reshape ke 3D (1, 60, 12)
-                X_input = np.array([input_scaled])
-                
-                # 4. SPLIT INPUT (Inilah Kunci Perbaikannya!)
-                # Asumsi urutan kolom: [Close, Open, High, Low, Vol, X5, X6, ATR, X8, X9, X10, X11]
-                # 8 Fitur Pertama = Quantitative
-                # 4 Fitur Terakhir = Qualitative (Sentimen)
-                
-                X_quant = X_input[:, :, :8]  # Ambil index 0 sampai 7
-                X_qual  = X_input[:, :, 8:]  # Ambil index 8 sampai 11
-                
-                # 5. Predict dengan 2 Input
-                try:
-                    # Masukkan list berisi 2 array
-                    predicted_scaled = model.predict([X_quant, X_qual])
-                except Exception as e:
-                    st.error(f"Error Model Predict: {str(e)}")
-                    return
-
-                # 6. Inverse Transform
-                # Kita perlu dummy array ukuran 12 lagi
+                # --- SIAPKAN DATA AWAL ---
+                # 1. Bersihkan data
                 drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
                 features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
                 numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
                 
+                # Cek index kolom Close untuk update nanti
                 try:
                     close_col_idx = numeric_cols.index('Close')
                 except:
-                    close_col_idx = 0 
+                    close_col_idx = 0
 
-                dummy_array = np.zeros((1, input_data.shape[1]))
-                dummy_array[0, close_col_idx] = predicted_scaled[0][0]
-                prediction_result = scaler.inverse_transform(dummy_array)[0, close_col_idx]
+                # 2. Ambil window terakhir (Data Asli belum di-scale)
+                current_window = features_df[numeric_cols].tail(WINDOW_SIZE).values # Shape (60, 12)
                 
-                last_actual_price = df_ticker['Close'].iloc[-1]
-                movement = prediction_result - last_actual_price
-                movement_pct = (movement / last_actual_price) * 100
-                direction_emoji = "📈 Naik" if movement > 0 else "📉 Turun"
+                predictions = []
+                last_actual = df_ticker['Close'].iloc[-1]
 
-                st.markdown(f"""
-                <div class="prediction-card">
-                    <div class="prediction-main">
-                        <p style="color: rgba(255,255,255,0.8); margin-bottom: 0;">Prediksi Harga Penutupan Besok</p>
-                        <h2>Rp {prediction_result:,.0f}</h2>
-                        <div class="confidence-score" style="background: {'rgba(76, 209, 55, 0.2)' if movement > 0 else 'rgba(232, 65, 24, 0.2)'}">
-                            <span>{direction_emoji} ({movement_pct:+.2f}%)</span>
+                # --- LOOP PREDIKSI 3 HARI ---
+                for day in range(1, 4):
+                    # A. Scale Data Window saat ini
+                    # input_scaled shape: (60, 12)
+                    input_scaled = scaler.transform(current_window)
+                    
+                    # B. Reshape ke (1, 60, 12)
+                    X_input = np.array([input_scaled])
+                    
+                    # C. Split Input (Quant vs Qual)
+                    X_quant = X_input[:, :, :8]
+                    X_qual  = X_input[:, :, 8:]
+                    
+                    # D. Predict
+                    try:
+                        pred_scaled = model.predict([X_quant, X_qual], verbose=0)
+                    except:
+                        # Fallback
+                        pred_scaled = model.predict(X_input, verbose=0)
+                        
+                    # E. Inverse Transform (Dapatkan Rupiah)
+                    dummy = np.zeros((1, 12))
+                    dummy[0, close_col_idx] = pred_scaled[0][0]
+                    pred_rupiah = scaler.inverse_transform(dummy)[0, close_col_idx]
+                    
+                    # Simpan hasil
+                    predictions.append(pred_rupiah)
+                    
+                    # F. UPDATE WINDOW UNTUK HARI BERIKUTNYA (RECURSIVE)
+                    # Kita harus membuang baris paling lama (hari ke-1), dan memasukkan baris baru (hasil prediksi)
+                    
+                    new_row = current_window[-1].copy() # Copy baris terakhir
+                    
+                    # Update nilai Close dengan hasil prediksi
+                    new_row[close_col_idx] = pred_rupiah
+                    
+                    # Asumsi: Open besok = Close hari ini (prediksi)
+                    try:
+                        open_idx = numeric_cols.index('Open')
+                        new_row[open_idx] = pred_rupiah
+                    except:
+                        pass
+                    
+                    # Fitur lain (Sentiment/Volume) diasumsikan sama (Forward Fill) karena tidak bisa diprediksi
+                    
+                    # Gabungkan: Data lama (indeks 1 sampai akhir) + Baris Baru
+                    current_window = np.vstack([current_window[1:], new_row])
+
+                # --- TAMPILKAN HASIL (3 KARTU) ---
+                st.markdown("### 📅 Hasil Forecast")
+                cols = st.columns(3)
+                
+                dates = ["Besok (H+1)", "Lusa (H+2)", "H+3"]
+                
+                for i, (col, pred) in enumerate(zip(cols, predictions)):
+                    # Hitung kenaikan dari harga sebelumnya (Chain)
+                    prev_price = last_actual if i == 0 else predictions[i-1]
+                    change = pred - prev_price
+                    pct_change = (change / prev_price) * 100
+                    emoji = "📈" if change > 0 else "📉"
+                    bg_color = "rgba(76, 209, 55, 0.2)" if change > 0 else "rgba(232, 65, 24, 0.2)"
+                    
+                    with col:
+                        st.markdown(f"""
+                        <div style="background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; border-top: 5px solid #667eea;">
+                            <h4 style="margin:0; color:#666;">{dates[i]}</h4>
+                            <h2 style="margin: 10px 0; font-size: 1.8rem; color: #2c3e50;">Rp {pred:,.0f}</h2>
+                            <div style="background: {bg_color}; padding: 5px 10px; border-radius: 15px; display: inline-block;">
+                                <span style="font-weight: bold; font-size: 0.9rem;">{emoji} {pct_change:+.2f}%</span>
+                            </div>
                         </div>
-                    </div>
-                    <div style="margin-top: 2rem; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 1rem;">
-                        <p style="color: white;">Harga Terakhir (Actual): <strong>Rp {last_actual_price:,.0f}</strong></p>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
+                        """, unsafe_allow_html=True)
+
+                st.success(f"Basis Data Terakhir: Rp {last_actual:,.0f}")
+
             except Exception as e:
-                st.error(f"Terjadi kesalahan logika: {str(e)}")
+                st.error(f"Terjadi kesalahan saat forecasting: {str(e)}")
 
 # ==========================================
 # 6. EVALUATION FUNCTIONS
@@ -716,49 +745,59 @@ def show_forecast_simulator(df):
 
 def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
     """
-    Hitung MAPE & RMSE dengan FIX Split Input (Quant 8 + Qual 4)
+    Hitung MAPE & RMSE dengan FIX SPLIT INPUT (Quant 8 + Qual 4)
     """
     try:
         required_len = window_size + test_days
+        # Cek ketersediaan data
         if len(df_ticker) < required_len:
+            # st.warning(f"Data kurang: {len(df_ticker)} < {required_len}") # Debug
             return None, None
         
+        # 1. Bersihkan Data
         drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
         features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
         
+        # Pastikan hanya angka
         valid_feature_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        # Ambil data testing
         data_subset = features_df[valid_feature_cols].tail(required_len).values
         
-        # Scaling
+        # 2. Scaling
         data_scaled = scaler.transform(data_subset)
         
         X_test = []
         y_true_scaled = []
         
+        # 3. Sliding Window
         for i in range(window_size, len(data_scaled)):
             X_test.append(data_scaled[i-window_size:i])
             y_true_scaled.append(data_scaled[i])
             
-        X_test = np.array(X_test) # Shape (N, 60, 12)
+        X_test = np.array(X_test).astype('float32') # Pastikan float32
         y_true_scaled = np.array(y_true_scaled)
         
-        # --- FIX SPLIT UNTUK EVALUASI ---
-        X_test_quant = X_test[:, :, :8] # 8 Fitur Pertama
-        X_test_qual  = X_test[:, :, 8:] # 4 Fitur Terakhir
+        # 4. SPLIT INPUT (CRUCIAL FIX)
+        X_test_quant = X_test[:, :, :8] # 8 Fitur Awal
+        X_test_qual  = X_test[:, :, 8:] # 4 Fitur Akhir
         
+        # 5. Predict
         try:
-            # Predict dengan 2 Input
+            # Coba Dual Input
             y_pred_scaled = model.predict([X_test_quant, X_test_qual], verbose=0)
         except:
-            # Fallback jika model ternyata single input (kecil kemungkinan)
+            # Fallback Single Input
             y_pred_scaled = model.predict(X_test, verbose=0)
             
+        # 6. Inverse Transform
         try:
             close_col_idx = valid_feature_cols.index('Close')
         except:
             close_col_idx = 0 
 
         def inverse_close_price(scaled_data_2d):
+            # Dummy harus selebar total fitur (12)
             dummy = np.zeros((len(scaled_data_2d), data_subset.shape[1]))
             dummy[:, close_col_idx] = scaled_data_2d.flatten()
             inv = scaler.inverse_transform(dummy)
@@ -766,15 +805,19 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
 
         y_pred_actual = inverse_close_price(y_pred_scaled)
         
+        # Inverse Ground Truth
         y_true_inv_full = scaler.inverse_transform(y_true_scaled)
         y_true_actual = y_true_inv_full[:, close_col_idx]
         
+        # 7. Hitung Error
         rmse = math.sqrt(mean_squared_error(y_true_actual, y_pred_actual))
         mape = mean_absolute_percentage_error(y_true_actual, y_pred_actual)
         
         return mape, rmse
+        
     except Exception as e:
-        # print(f"Debug Error: {e}") # Uncomment untuk debug di terminal
+        # Tampilkan error spesifik di console/terminal deployment untuk debug
+        print(f"DEBUG ERROR {df_ticker.iloc[0]['Stock'] if not df_ticker.empty else 'Unknown'}: {str(e)}")
         return None, None
 
 def show_model_evaluation(df):
