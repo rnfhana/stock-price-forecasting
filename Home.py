@@ -556,21 +556,27 @@ def get_ticker_data(df, ticker):
 def prepare_inputs(df_ticker, window_size=60):
     """
     Menyiapkan data input untuk prediksi.
-    PENTING: Kita harus membuang kolom target (Yt+1) agar tidak bocor ke input.
+    FIX: Membuang kolom Yt+1 dan Yt-1 sesuai instruksi user agar sisa 12 fitur.
     """
-    # Buang kolom non-fitur dan kolom target masa depan (Yt+1)
-    # Sesuaikan list 'drop_cols' dengan apa yang TIDAK dipakai saat training
-    drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1'] 
+    # 1. Tentukan kolom yang WAJIB DIBUANG
+    # Date/Stock: Bukan angka
+    # Yt+1: Target prediksi (kunci jawaban)
+    # Yt-1: User konfirmasi tidak dipakai
+    drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1'] 
     
-    # Ambil hanya kolom yang ada di dataframe
-    cols_to_drop = [c for c in drop_cols if c in df_ticker.columns]
-    features_df = df_ticker.drop(columns=cols_to_drop)
+    # 2. Buang kolom tersebut jika ada di dataframe
+    # Gunakan 'errors=ignore' agar tidak error jika kolom sudah tidak ada
+    features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
     
-    # Pastikan hanya numerik
+    # 3. Pastikan urutan kolom sesuai dengan saat training
+    # Ambil hanya kolom numerik yang tersisa (Harusnya sisa 12)
     numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
     
-    # Ambil data terakhir sebanyak window_size
-    last_window = df_ticker[numeric_cols].tail(window_size).values
+    # Debug (Optional): Print jumlah fitur ke terminal server
+    # print(f"Input Features ({len(numeric_cols)}): {numeric_cols}")
+    
+    # 4. Ambil data terakhir (windowing)
+    last_window = features_df[numeric_cols].tail(window_size).values
     
     return last_window
 
@@ -912,20 +918,26 @@ def show_forecast_simulator(df):
 
 def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
     """
-    Menghitung MAPE dan RMSE pada data testing (misal: 30 hari terakhir).
+    Menghitung MAPE dan RMSE.
+    FIX: Memastikan input data ke scaler hanya 12 fitur (buang Yt+1 dan Yt-1).
     """
     try:
-        # Siapkan data
-        # Kita butuh (window_size + test_days) data terakhir untuk memprediksi test_days
+        # Siapkan data length
         required_len = window_size + test_days
         if len(df_ticker) < required_len:
             return None, None
         
-        # Ambil data untuk testing
-        numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
-        data_subset = df_ticker[numeric_cols].tail(required_len).values
+        # --- FIX KOLOM INPUT ---
+        drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
+        features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
         
-        # Scale
+        # Ambil list nama kolom yang valid (12 fitur)
+        valid_feature_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        # Ambil data subset untuk testing (Hanya kolom valid)
+        data_subset = features_df[valid_feature_cols].tail(required_len).values
+        
+        # Scale Data (Sekarang shape-nya pasti (N, 12) -> Aman!)
         data_scaled = scaler.transform(data_subset)
         
         X_test = []
@@ -934,43 +946,43 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
         # Buat sequence
         for i in range(window_size, len(data_scaled)):
             X_test.append(data_scaled[i-window_size:i])
-            # Asumsi: Target (Close) ada di kolom tertentu. 
-            # Kita ambil row i, dan semua kolom (nanti kita ambil close saat inverse)
             y_true_scaled.append(data_scaled[i])
             
         X_test = np.array(X_test)
         y_true_scaled = np.array(y_true_scaled)
         
         # Predict
-        # Handle input shape mismatch (seperti di forecast simulator)
         try:
             y_pred_scaled = model.predict(X_test, verbose=0)
         except:
-            y_pred_scaled = model.predict([X_test, X_test], verbose=0) # Dummy fusion
+            y_pred_scaled = model.predict([X_test, X_test], verbose=0)
             
-        # Inverse Transform
-        # Kita perlu mengembalikan ke skala asli untuk menghitung MAPE/RMSE yang valid
+        # Inverse Transform Logic
+        # Kita harus cari tahu index kolom 'Close' (Yt) di antara 12 fitur yang tersisa
+        # Biasanya 'Close' (Yt) adalah kolom pertama atau kedua setelah drop.
         
-        # Cari index kolom Close
         try:
-            close_col_idx = numeric_cols.index('Close')
-        except:
-            close_col_idx = 3 # Default fallback
-            
-        # Helper untuk inverse spesifik kolom Close
+            # Cari posisi kolom 'Close' di dalam list valid_feature_cols
+            # Ingat: Di load_dataset kita rename 'Yt' -> 'Close'
+            close_col_idx = valid_feature_cols.index('Close')
+        except ValueError:
+            # Fallback jika nama kolom tidak ketemu, tebak index (biasanya index 0 atau 1)
+            close_col_idx = 0 
+
         def inverse_close_price(scaled_data_2d):
-            # Buat dummy array seukuran jumlah fitur scaler
+            # Dummy array harus selebar jumlah fitur scaler (12)
             dummy = np.zeros((len(scaled_data_2d), data_subset.shape[1]))
-            # Masukkan data prediksi ke kolom Close
-            # Asumsi output model (N, 1)
+            # Masukkan prediksi ke posisi kolom Close
             dummy[:, close_col_idx] = scaled_data_2d.flatten()
             inv = scaler.inverse_transform(dummy)
             return inv[:, close_col_idx]
 
         y_pred_actual = inverse_close_price(y_pred_scaled)
         
-        # Untuk y_true, kita tidak perlu dummy karena kita punya data lengkap
-        y_true_actual = scaler.inverse_transform(y_true_scaled)[:, close_col_idx]
+        # Untuk ground truth, kita ambil langsung dari scaler inverse
+        # Gunakan index yang sama
+        y_true_inv_full = scaler.inverse_transform(y_true_scaled)
+        y_true_actual = y_true_inv_full[:, close_col_idx]
         
         # Hitung Metrics
         rmse = math.sqrt(mean_squared_error(y_true_actual, y_pred_actual))
@@ -979,7 +991,7 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
         return mape, rmse
         
     except Exception as e:
-        print(f"Error calculating metrics: {e}")
+        print(f"Error metrics: {e}")
         return None, None
 
 def show_model_evaluation(df):
