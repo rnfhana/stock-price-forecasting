@@ -630,7 +630,8 @@ def show_forecast_simulator(df):
     st.markdown("""
     <div class="info-box">
         <h3>ℹ️ Model Architecture: GRU Fusion</h3>
-        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal.</p>
+        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal.
+        Input dipisahkan menjadi <strong>Quantitative</strong> (Harga/Indikator) dan <strong>Qualitative</strong> (Sentimen).</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -639,30 +640,40 @@ def show_forecast_simulator(df):
         predict_btn = st.button("🚀 Jalankan Prediksi (Predict Next Day)", use_container_width=True)
 
     if predict_btn:
-        with st.spinner('Sedang memproses data...'):
+        with st.spinner('Sedang memproses data Fusi (Quant + Sentiment)...'):
             try:
                 WINDOW_SIZE = 60 
+                # 1. Ambil 12 Fitur (Sudah bersih dari Yt+1)
                 input_data = prepare_inputs(df_ticker, window_size=WINDOW_SIZE)
                 
-                # Cek length
                 if len(input_data) < WINDOW_SIZE:
                     st.error(f"Data kurang dari {WINDOW_SIZE} hari.")
                     return
 
-                # Scaling
+                # 2. Scaling (Menghasilkan 12 fitur terskala)
                 input_scaled = scaler.transform(input_data)
                 
-                # Reshape (1, 60, 12)
+                # 3. Reshape ke 3D (1, 60, 12)
                 X_input = np.array([input_scaled])
                 
+                # 4. SPLIT INPUT (Inilah Kunci Perbaikannya!)
+                # Asumsi urutan kolom: [Close, Open, High, Low, Vol, X5, X6, ATR, X8, X9, X10, X11]
+                # 8 Fitur Pertama = Quantitative
+                # 4 Fitur Terakhir = Qualitative (Sentimen)
+                
+                X_quant = X_input[:, :, :8]  # Ambil index 0 sampai 7
+                X_qual  = X_input[:, :, 8:]  # Ambil index 8 sampai 11
+                
+                # 5. Predict dengan 2 Input
                 try:
-                    predicted_scaled = model.predict(X_input)
-                except:
-                    # Fallback dummy fusion
-                    predicted_scaled = model.predict([X_input, X_input])
+                    # Masukkan list berisi 2 array
+                    predicted_scaled = model.predict([X_quant, X_qual])
+                except Exception as e:
+                    st.error(f"Error Model Predict: {str(e)}")
+                    return
 
-                # Inverse Transform
-                # Cari index kolom 'Close' (Yt)
+                # 6. Inverse Transform
+                # Kita perlu dummy array ukuran 12 lagi
                 drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
                 features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
                 numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
@@ -697,7 +708,7 @@ def show_forecast_simulator(df):
                 """, unsafe_allow_html=True)
                 
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {str(e)}")
+                st.error(f"Terjadi kesalahan logika: {str(e)}")
 
 # ==========================================
 # 6. EVALUATION FUNCTIONS
@@ -705,14 +716,13 @@ def show_forecast_simulator(df):
 
 def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
     """
-    Hitung MAPE & RMSE dengan FIX drop Yt+1 & Yt-1
+    Hitung MAPE & RMSE dengan FIX Split Input (Quant 8 + Qual 4)
     """
     try:
         required_len = window_size + test_days
         if len(df_ticker) < required_len:
             return None, None
         
-        # --- FIX DROP ---
         drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
         features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
         
@@ -729,13 +739,19 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
             X_test.append(data_scaled[i-window_size:i])
             y_true_scaled.append(data_scaled[i])
             
-        X_test = np.array(X_test)
+        X_test = np.array(X_test) # Shape (N, 60, 12)
         y_true_scaled = np.array(y_true_scaled)
         
+        # --- FIX SPLIT UNTUK EVALUASI ---
+        X_test_quant = X_test[:, :, :8] # 8 Fitur Pertama
+        X_test_qual  = X_test[:, :, 8:] # 4 Fitur Terakhir
+        
         try:
-            y_pred_scaled = model.predict(X_test, verbose=0)
+            # Predict dengan 2 Input
+            y_pred_scaled = model.predict([X_test_quant, X_test_qual], verbose=0)
         except:
-            y_pred_scaled = model.predict([X_test, X_test], verbose=0)
+            # Fallback jika model ternyata single input (kecil kemungkinan)
+            y_pred_scaled = model.predict(X_test, verbose=0)
             
         try:
             close_col_idx = valid_feature_cols.index('Close')
@@ -758,6 +774,7 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
         
         return mape, rmse
     except Exception as e:
+        # print(f"Debug Error: {e}") # Uncomment untuk debug di terminal
         return None, None
 
 def show_model_evaluation(df):
