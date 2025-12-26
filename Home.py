@@ -1,553 +1,1110 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import timedelta
+import tensorflow as tf
+import joblib
+import base64
+from pathlib import Path
+import os
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+import math
 
-# --- IMPORT LENGKAP ---
-from utils.data_loader import (
-    load_dataset, 
-    load_prediction_model, 
-    prepare_input_data, 
-    load_shap_data, 
-    load_evaluation_files, 
-    EMITENS, 
-    IDX_QUANT, 
-    IDX_QUAL
-)
-from utils.plots import plot_advanced_technical, plot_interactive_forecast, plot_interactive_shap
+# ==========================================
+# 1. KONFIGURASI HALAMAN & CSS
+# ==========================================
 
-# 1. PAGE CONFIG
 st.set_page_config(
-    page_title="Stock Fusion AI",
+    page_title="Thesis Dashboard - GRU Fusion",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# 2. LOAD CSS
-with open('style.css') as f:
-    st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-
-# 3. HEADER & SELECTOR (DIGABUNG BIAR VAR 'selected_emiten' AMAN)
-c1, c2 = st.columns([3, 1])
-
-with c1:
+def load_css():
+    """Load custom CSS styling (Persis sesuai request)"""
     st.markdown("""
-    <div style='display: flex; align-items: center; gap: 10px;'>
-        <h1 style='margin:0;'>Stock Fusion AI</h1>
-        <span style='background:#DCFCE7; color:#166534; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;'>● LIVE MARKET</span>
-    </div>
-    <p style='color:#6B7280; margin-top:5px; font-size:16px;'>
-        Institutional-grade forecasting engine powered by <strong>Multimodal LSTM & Attention Mechanism</strong>.
-    </p>
+    <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+     
+    /* Global Styles */
+    .main {
+        font-family: 'Inter', sans-serif;
+    }
+     
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+     
+    /* Main Header */
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+    }
+     
+    .main-header h1 {
+        color: white;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+     
+    .main-header p {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1.2rem;
+        font-weight: 300;
+        margin: 0;
+    }
+     
+    /* Sidebar Styling */
+    .sidebar-header {
+        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .sidebar-header h2 {
+        color: white;
+        margin: 0;
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+     
+    /* Page Headers */
+    .page-header {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+     
+    .page-header h2 {
+        color: #2c3e50;
+        font-size: 2rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+     
+    .page-header p {
+        color: #5a6c7d;
+        font-size: 1.1rem;
+        margin: 0;
+    }
+     
+    /* Feature Cards */
+    .feature-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1.5rem;
+        border-left: 4px solid #667eea;
+    }
+     
+    .feature-card h2, .feature-card h3 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+    }
+     
+    .feature-card p {
+        color: #5a6c7d;
+        line-height: 1.6;
+    }
+     
+    /* Waste Categories (Diadaptasi untuk Layout Grid) */
+    .waste-categories {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+     
+    .category-item {
+        background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        color: white;
+        font-weight: 500;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+     
+    /* Features Grid */
+    .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+     
+    .feature-item {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        text-align: center;
+    }
+     
+    .feature-item h4 {
+        color: #2c3e50;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+     
+    .feature-item p {
+        color: #5a6c7d;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+     
+    /* Stats Card */
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 1.5rem;
+    }
+     
+    .stats-card h3 {
+        text-align: center;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+     
+    .stat-item {
+        text-align: center;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        backdrop-filter: blur(10px);
+    }
+     
+    .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+     
+    .stat-label {
+        font-size: 0.9rem;
+        opacity: 0.8;
+        font-weight: 300;
+    }
+     
+    /* Guide Card */
+    .guide-card {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-top: 1.5rem;
+    }
+     
+    .guide-card h3 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+     
+    .guide-card ol {
+        color: #5a6c7d;
+        padding-left: 1rem;
+    }
+     
+    .guide-card li {
+        margin-bottom: 0.5rem;
+        line-height: 1.5;
+    }
+     
+    /* Info Box */
+    .info-box {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        margin-top: 1rem;
+    }
+     
+    .info-box h3 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+     
+    .info-box p {
+        color: #5a6c7d;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+    }
+     
+    /* Section Headers */
+    .section-header {
+        text-align: center;
+        margin: 2rem 0 1rem 0;
+    }
+     
+    .section-header h3 {
+        color: #2c3e50;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+     
+    /* Upload Section */
+    .upload-section {
+        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+     
+    .upload-section h3 {
+        color: white;
+        margin: 0;
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+     
+    /* Results Section */
+    .results-section {
+        background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+     
+    .results-section h3 {
+        color: white;
+        margin: 0;
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+     
+    /* Prediction Card */
+    .prediction-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+    }
+     
+    .prediction-main h2 {
+        color: white;
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+     
+    .confidence-score {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        display: inline-block;
+        backdrop-filter: blur(10px);
+    }
+     
+    .confidence-score span {
+        color: white;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+     
+    /* Recommendation Card */
+    .recommendation-card {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-top: 1rem;
+    }
+     
+    .recommendation-card h4 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+     
+    .recommendation-card p, .recommendation-card ul {
+        color: #5a6c7d;
+        line-height: 1.6;
+    }
+     
+    .recommendation-card li {
+        margin-bottom: 0.5rem;
+    }
+     
+    /* Insight Cards */
+    .insight-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #667eea;
+        height: 100%;
+    }
+     
+    .insight-card h4 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+     
+    .insight-card p {
+        color: #5a6c7d;
+        line-height: 1.6;
+        margin: 0;
+    }
+     
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .main-header h1 {
+            font-size: 2rem;
+        }
+         
+        .main-header p {
+            font-size: 1rem;
+        }
+         
+        .page-header h2 {
+            font-size: 1.5rem;
+        }
+         
+        .features-grid {
+            grid-template-columns: 1fr;
+        }
+         
+        .waste-categories {
+            grid-template-columns: 1fr;
+        }
+    }
+     
+    /* Button Styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 2rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+     
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+     
+    /* Metric Styling */
+    [data-testid="metric-container"] {
+        background: white;
+        border: 1px solid #e1e8ed;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+     
+    /* File Uploader Styling */
+    .stFileUploader {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        border: 2px dashed #667eea;
+    }
+     
+    /* Selectbox Styling */
+    .stSelectbox > div > div {
+        background: white;
+        border-radius: 8px;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-with c2:
-    # Selector dipindah ke sini agar variabelnya terdefinisi sebelum dipakai filter
-    selected_emiten = st.selectbox("", EMITENS, label_visibility="collapsed")
+# Memanggil Fungsi Load CSS
+load_css()
 
-st.divider()
+# ==========================================
+# 2. KONFIGURASI PATHS & EMITEN
+# ==========================================
 
-# 4. LOAD DATA UTAMA
-with st.spinner("Connecting to Market Data Engine..."):
-    df = load_dataset()
+# Base directory paths
+BASE_MODEL_PATH = r"D:\Akademik ITS\RISET & SKRIPSI\STREAMLIT\skripsi_dashboard_hana2\models"
+BASE_DATA_PATH = r"D:\Akademik ITS\RISET & SKRIPSI\STREAMLIT\skripsi_dashboard_hana2\data"
 
-# 5. MAIN LOGIC (Sekarang aman karena 'selected_emiten' sudah ada)
-if not df.empty and selected_emiten in df['relevant_issuer'].values:
-    # Filter Data Emiten & Sort
-    df_e = df[df['relevant_issuer'] == selected_emiten].sort_values('date')
-    
-    # Ambil Data Terakhir untuk KPI
-    last_row = df_e.iloc[-1]
-    prev_row = df_e.iloc[-2]
-    
-    # KPI Metrics
-    m1, m2, m3, m4 = st.columns(4)
-    price_change = last_row['Yt'] - prev_row['Yt']
-    pct_change = (price_change / prev_row['Yt']) * 100
-    
-    with m1: st.metric("Last Price", f"Rp {int(last_row['Yt']):,}", f"{pct_change:.2f}%")
-    with m2: st.metric("Volume", f"{int(last_row['X4']/1000000)}M", "Shares")
-    with m3: st.metric("RSI (14)", f"{last_row['X6']:.1f}", "Neutral" if 30 < last_row['X6'] < 70 else "Overbought/Sold")
-    with m4:
-        sentiment_score = last_row['X7']
-        delta_sent = sentiment_score - prev_row['X7']
-        # Custom color logic for Delta
-        st.metric("Sentiment Index", f"{sentiment_score:.3f}", f"{delta_sent:.3f}", delta_color="normal") 
+# Daftar Emiten yang valid
+EMITEN_LIST = ["AKRA", "BBRI", "BMRI", "PGAS", "UNVR"]
 
-    st.markdown("###")
+# Dictionary untuk mapping semua file path
+FILES = {
+    "data": {
+        "main": os.path.join(BASE_DATA_PATH, "df_fusi_multimodal_final_hana.csv"),
+        "shap": os.path.join(BASE_DATA_PATH, "shap_values_summary.csv")
+    },
+    "models": {
+        "AKRA": os.path.join(BASE_MODEL_PATH, "model_fusion_AKRA.h5"),
+        "BBRI": os.path.join(BASE_MODEL_PATH, "model_fusion_BBRI.h5"),
+        "BMRI": os.path.join(BASE_MODEL_PATH, "model_fusion_BMRI.h5"),
+        "PGAS": os.path.join(BASE_MODEL_PATH, "model_fusion_PGAS.h5"),
+        "UNVR": os.path.join(BASE_MODEL_PATH, "model_fusion_UNVR.h5"),
+    },
+    "scalers": {
+        "AKRA": os.path.join(BASE_MODEL_PATH, "scaler_AKRA.pkl"),
+        "BBRI": os.path.join(BASE_MODEL_PATH, "scaler_BBRI.pkl"),
+        "BMRI": os.path.join(BASE_MODEL_PATH, "scaler_BMRI.pkl"),
+        "PGAS": os.path.join(BASE_MODEL_PATH, "scaler_PGAS.pkl"),
+        "UNVR": os.path.join(BASE_MODEL_PATH, "scaler_UNVR.pkl"),
+    }
+}
+
+# Verifikasi sederhana apakah file path ada (Optional, untuk debugging di console)
+print("Konfigurasi Path Selesai. Siap Melanjutkan.")
+
+# ==========================================
+# 3. DATA LOADING & PROCESSING FUNCTIONS (PERBAIKAN)
+# ==========================================
+
+@st.cache_data
+def load_dataset():
+    """
+    Load main dataset dan lakukan renaming kolom sesuai variabel skripsi.
+    Mapping:
+    - date -> Date
+    - relevant_issuer -> Stock
+    - Yt -> Close (Harga Penutupan)
+    - X1 -> Open
+    - X2 -> High
+    - X3 -> Low
+    - X4 -> Volume
+    - X7 -> ATR
+    """
+    try:
+        # Load Main Data
+        df = pd.read_csv(FILES["data"]["main"])
+        
+        # 1. RENAME KOLOM (Kamus Penerjemah)
+        # Agar kode visualisasi plotly bisa membaca data Anda
+        rename_map = {
+            'date': 'Date',
+            'relevant_issuer': 'Stock',
+            'Yt': 'Close',      # Close Price Hari Ini
+            'X1': 'Open',       # Opening Price
+            'X2': 'High',       # Highest Price
+            'X3': 'Low',        # Lowest Price
+            'X4': 'Volume',     # Volume
+            'X7': 'ATR'         # ATR (Sudah ada, tidak perlu hitung ulang)
+        }
+        
+        # Lakukan rename hanya jika kolomnya ada
+        df.rename(columns=rename_map, inplace=True)
+        
+        # 2. Convert Date
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.sort_values('Date')
+            
+        return df
+    except Exception as e:
+        st.error(f"Error loading main dataset: {e}")
+        return pd.DataFrame()
+
+@st.cache_data
+def load_shap_data():
+    """
+    Load data SHAP values summary.
+    """
+    try:
+        df_shap = pd.read_csv(FILES["data"]["shap"])
+        return df_shap
+    except Exception as e:
+        return pd.DataFrame()
+
+# CATATAN: Fungsi calculate_atr SAYA HAPUS 
+# karena di data Anda sudah ada variabel X7 (ATR). 
+# Kita pakai X7 asli dari skripsi agar akurat.
+
+def get_ticker_data(df, ticker):
+    """
+    Filter data berdasarkan emiten.
+    """
+    # Filter by Ticker (Kolom sudah direname jadi 'Stock')
+    if 'Stock' in df.columns:
+        df_ticker = df[df['Stock'] == ticker].copy()
+    else:
+        # Fallback jika rename gagal
+        df_ticker = df[df['relevant_issuer'] == ticker].copy() if 'relevant_issuer' in df.columns else df.copy()
     
-    # --- MAIN TABS ---
-    tab_market, tab_pred, tab_eval, tab_xai = st.tabs([
-        "📈 Market Overview", 
-        "🔮 Forecast Simulator", 
-        "📊 Model Evaluation", 
-        "🧠 Explainable AI"
-    ])
+    # Sort by Date
+    if 'Date' in df_ticker.columns:
+        df_ticker = df_ticker.sort_values('Date')
     
-    # =========================================
-    # TAB 1: MARKET OVERVIEW (REWORKED CONTROL PANEL)
-    # =========================================
-    with tab_market:
-        # --- CONFIGURATION TOOLBAR ---
-        # Menggunakan container dengan border halus agar terlihat seperti "Toolbar"
-        with st.container():
-            st.markdown("""
-            <div style="background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb; margin-bottom: 20px; display: flex; align-items: center; gap: 20px;">
-                <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">⚙️ CHART SETTINGS</span>
+    return df_ticker
+
+# Update fungsi prepare_inputs juga agar tidak salah ambil kolom target (Yt+1)
+def prepare_inputs(df_ticker, window_size=60):
+    """
+    Menyiapkan data input untuk prediksi.
+    PENTING: Kita harus membuang kolom target (Yt+1) agar tidak bocor ke input.
+    """
+    # Buang kolom non-fitur dan kolom target masa depan (Yt+1)
+    # Sesuaikan list 'drop_cols' dengan apa yang TIDAK dipakai saat training
+    drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1'] 
+    
+    # Ambil hanya kolom yang ada di dataframe
+    cols_to_drop = [c for c in drop_cols if c in df_ticker.columns]
+    features_df = df_ticker.drop(columns=cols_to_drop)
+    
+    # Pastikan hanya numerik
+    numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    # Ambil data terakhir sebanyak window_size
+    last_window = df_ticker[numeric_cols].tail(window_size).values
+    
+    return last_window
+
+# ==========================================
+# 4. HALAMAN: MARKET OVERVIEW
+# ==========================================
+
+def plot_interactive_chart(df, ticker):
+    """
+    Membuat chart interaktif gabungan: 
+    Row 1: Candlestick/Line Chart (Harga)
+    Row 2: Volume
+    Row 3: ATR (Average True Range) -> Fitur Baru
+    """
+    # Create subplots with shared x-axis
+    fig = make_subplots(
+        rows=3, cols=1, 
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        row_heights=[0.6, 0.2, 0.2],
+        subplot_titles=(f'{ticker} Price Action', 'Volume', 'Average True Range (ATR)')
+    )
+
+    # 1. Candlestick Chart
+    fig.add_trace(go.Candlestick(
+        x=df['Date'],
+        open=df['Open'], high=df['High'],
+        low=df['Low'], close=df['Close'],
+        name='OHLC'
+    ), row=1, col=1)
+
+    # 2. Volume Chart
+    fig.add_trace(go.Bar(
+        x=df['Date'], y=df['Volume'],
+        name='Volume', marker_color='rgba(100, 149, 237, 0.5)'
+    ), row=2, col=1)
+
+    # 3. ATR Chart (Fitur Baru)
+    # Pastikan ATR sudah dihitung di langkah sebelumnya
+    if 'ATR' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['Date'], y=df['ATR'],
+            name='ATR (14)', line=dict(color='#ff9f43', width=2)
+        ), row=3, col=1)
+
+    # Layout Styling
+    fig.update_layout(
+        height=800,
+        showlegend=False,
+        xaxis_rangeslider_visible=False,
+        template='plotly_white',
+        margin=dict(l=20, r=20, t=40, b=20),
+        hovermode="x unified"
+    )
+    
+    return fig
+
+def show_market_overview(df):
+    """
+    Menampilkan halaman Market Overview
+    """
+    # --- Sidebar Filter Khusus Halaman Ini ---
+    st.sidebar.markdown("### ⚙️ Konfigurasi Market")
+    selected_ticker = st.sidebar.selectbox("Pilih Emiten:", EMITEN_LIST, index=0)
+    
+    # Ambil data spesifik emiten & hitung ATR
+    df_ticker = get_ticker_data(df, selected_ticker)
+    
+    if df_ticker.empty:
+        st.warning("Data tidak ditemukan untuk emiten ini.")
+        return
+
+    # --- Header Halaman ---
+    st.markdown(f"""
+    <div class='page-header'>
+        <h2>Market Overview: {selected_ticker}</h2>
+        <p>Analisis Pergerakan Harga & Indikator Volatilitas (ATR)</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- Hitung Metrics Terkini ---
+    last_data = df_ticker.iloc[-1]
+    prev_data = df_ticker.iloc[-2]
+    
+    current_price = last_data['Close']
+    price_change = current_price - prev_data['Close']
+    pct_change = (price_change / prev_data['Close']) * 100
+    
+    current_atr = last_data['ATR'] if not pd.isna(last_data['ATR']) else 0
+    current_vol = last_data['Volume']
+
+    # --- Tampilkan Metrics Card (Menggunakan CSS Custom) ---
+    # Kita menggunakan HTML manual agar stylenya persis stats-card CSS
+    st.markdown(f"""
+    <div class="stats-card">
+        <h3>Market Summary ({last_data['Date'].strftime('%d %b %Y')})</h3>
+        <div style="display: flex; justify-content: space-around; flex-wrap: wrap;">
+            <div class="stat-item">
+                <div class="stat-number">Rp {current_price:,.0f}</div>
+                <div class="stat-label">Last Close</div>
             </div>
-            """, unsafe_allow_html=True)
-            
-            # Layout Kolom: Kiri (Date), Kanan (Indicators)
-            c_tools1, c_tools2 = st.columns([1, 2])
-            
-            with c_tools1:
-                # Date Filter
-                min_date = df_e['date'].min().date()
-                max_date = df_e['date'].max().date()
-                default_start = max_date - timedelta(days=180)
-                date_range = st.date_input("Timeframe Range", value=(default_start, max_date), min_value=min_date, max_value=max_date)
-
-            with c_tools2:
-                # Indicator Multiselect (Lebih rapi daripada banyak checkbox)
-                available_inds = ["Moving Average (20)", "Volume", "MACD", "RSI"]
-                default_inds = ["Volume"] # Default bersih, cuma harga & volume
-                
-                selected_inds = st.multiselect(
-                    "Active Indicators", 
-                    available_inds, 
-                    default=default_inds,
-                    placeholder="Add technical indicators..."
-                )
-
-        # --- CHART RENDERING ---
-        # 1. Filter Data by Date
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_d, end_d = date_range
-            mask = (df_e['date'].dt.date >= start_d) & (df_e['date'].dt.date <= end_d)
-            df_plot = df_e.loc[mask]
-        else:
-            df_plot = df_e 
-
-        # 2. Parse Selected Indicators
-        show_ma = "Moving Average (20)" in selected_inds
-        show_vol = "Volume" in selected_inds
-        show_macd = "MACD" in selected_inds
-        show_rsi = "RSI" in selected_inds
-
-        # 3. Plot Chart
-        fig_tech = plot_advanced_technical(df_plot, selected_emiten, show_ma, show_vol, show_macd, show_rsi)
-        st.plotly_chart(fig_tech, use_container_width=True)
-        
-        # --- DATA GRID (Footer) ---
-        st.markdown("### 📋 Historical Data Log")
-        with st.expander("View Raw Data Table", expanded=False):
-            display_cols = ['date', 'Yt', 'X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7']
-            friendly_names = {'date': 'Date', 'Yt': 'Close', 'X1': 'Open', 'X2': 'High', 'X3': 'Low', 'X4': 'Volume', 'X5': 'MACD', 'X6': 'RSI', 'X7': 'Sentiment'}
-            
-            df_table = df_plot[display_cols].copy().sort_values('date', ascending=False).rename(columns=friendly_names)
-            df_table['Date'] = df_table['Date'].dt.strftime('%Y-%m-%d')
-            
-            st.dataframe(
-                df_table, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "Close": st.column_config.NumberColumn(format="Rp %d"),
-                    "Volume": st.column_config.NumberColumn(format="%d"),
-                    "Sentiment": st.column_config.NumberColumn(format="%.4f"),
-                }
-            )
-
-    # =========================================
-    # TAB 2: FORECAST SIMULATOR (PROFESIONAL UI REWORK)
-    # =========================================
-    with tab_pred:
-        # --- 1. PREDICTION CONTROL PANEL ---
-        st.markdown("### 🎛️ Prediction Control Center")
-        
-        # Container untuk status sistem (Kesan canggih/teknis)
-        with st.container():
-            st.markdown("""
-            <div style="background-color: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; text-align: center;">
-                    <div style="border-right: 1px solid #e5e7eb;">
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Input Window</p>
-                        <p style="margin: 5px 0 0 0; color: #111827; font-size: 18px; font-weight: 700;">60 Days</p>
-                        <p style="margin: 0; color: #10b981; font-size: 11px;">● Active Lookback</p>
-                    </div>
-                    <div style="border-right: 1px solid #e5e7eb;">
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Forecast Horizon</p>
-                        <p style="margin: 5px 0 0 0; color: #111827; font-size: 18px; font-weight: 700;">T+3 Days</p>
-                        <p style="margin: 0; color: #6366f1; font-size: 11px;">● Short-term</p>
-                    </div>
-                    <div style="border-right: 1px solid #e5e7eb;">
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Model Engine</p>
-                        <p style="margin: 5px 0 0 0; color: #111827; font-size: 18px; font-weight: 700;">Hybrid LSTM</p>
-                        <p style="margin: 0; color: #f59e0b; font-size: 11px;">● Attention Mech.</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Last Data Point</p>
-                        <p style="margin: 5px 0 0 0; color: #111827; font-size: 18px; font-weight: 700;">""" + df_e['date'].max().strftime('%d %b %Y') + """</p>
-                        <p style="margin: 0; color: #10b981; font-size: 11px;">● Live Feed</p>
-                    </div>
+            <div class="stat-item">
+                <div class="stat-number" style="color: {'#4cd137' if price_change >= 0 else '#e84118'};">
+                    {price_change:,.0f} ({pct_change:.2f}%)
                 </div>
+                <div class="stat-label">Daily Change</div>
             </div>
-            <br>
-            """, unsafe_allow_html=True)
+            <div class="stat-item">
+                <div class="stat-number">{current_atr:,.2f}</div>
+                <div class="stat-label">ATR (Volatility)</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">{current_vol/1_000_000:.1f}M</div>
+                <div class="stat-label">Volume (Millions)</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        # Tombol Eksekusi (Full Width, Prominent)
-        # Menggunakan kolom agar tombol tidak terlalu lebar di layar ultra-wide
-        c_btn1, c_btn2, c_btn3 = st.columns([1, 2, 1])
-        with c_btn2:
-            run_pred = st.button("⚡ GENERATE AI FORECAST", type="primary", use_container_width=True)
+    # --- Tampilkan Chart ---
+    st.markdown("### 📊 Interactive Chart")
+    fig = plot_interactive_chart(df_ticker, selected_ticker)
+    st.plotly_chart(fig, use_container_width=True)
 
-        # --- 2. EXECUTION LOGIC ---
-        if run_pred:
-            # Tampilan loading yang lebih bersih
-            progress_text = "Operation in progress. Please wait."
-            my_bar = st.progress(0, text=progress_text)
-            
+    # --- Tampilkan Raw Data (Expander) ---
+    with st.expander("Lihat Data Historis Lengkap"):
+        st.dataframe(df_ticker.sort_values('Date', ascending=False).style.format({
+            'Open': '{:,.0f}', 'High': '{:,.0f}', 
+            'Low': '{:,.0f}', 'Close': '{:,.0f}', 
+            'Volume': '{:,.0f}', 'ATR': '{:.2f}'
+        }))
+
+# ==========================================
+# 5. HALAMAN: FORECAST SIMULATOR (GRU FUSION)
+# ==========================================
+
+@st.cache_resource
+def load_trained_model(ticker):
+    """
+    Load model GRU Fusion spesifik untuk emiten yang dipilih.
+    Menggunakan cache resource agar tidak berat saat reload.
+    """
+    model_path = FILES["models"].get(ticker)
+    if not model_path or not os.path.exists(model_path):
+        st.error(f"Model file not found for {ticker} at {model_path}")
+        return None
+    
+    try:
+        # Load model .h5
+        model = tf.keras.models.load_model(model_path, compile=False)
+        return model
+    except Exception as e:
+        st.error(f"Error loading model for {ticker}: {e}")
+        return None
+
+@st.cache_resource
+def load_specific_scaler(ticker):
+    """
+    Load scaler .pkl spesifik untuk emiten.
+    """
+    scaler_path = FILES["scalers"].get(ticker)
+    if not scaler_path or not os.path.exists(scaler_path):
+        st.error(f"Scaler file not found for {ticker}")
+        return None
+    
+    try:
+        scaler = joblib.load(scaler_path)
+        return scaler
+    except Exception as e:
+        st.error(f"Error loading scaler for {ticker}: {e}")
+        return None
+
+def prepare_inputs(df_ticker, window_size=60):
+    """
+    Menyiapkan data input untuk prediksi (Sliding Window).
+    Mengambil 'window_size' data terakhir.
+    """
+    # Pastikan data yang diambil hanya kolom numerik yang digunakan saat training
+    # NOTE: Sesuaikan list 'features' ini dengan urutan fitur saat Anda melatih model
+    # Biasanya: Open, High, Low, Close, Volume, (mungkin ATR/Sentiment)
+    # Di sini kita ambil semua kolom numerik kecuali Date/Stock
+    numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
+    
+    # Ambil data terakhir sebanyak window_size
+    last_window = df_ticker[numeric_cols].tail(window_size).values
+    
+    return last_window
+
+def show_forecast_simulator(df):
+    """
+    Menampilkan halaman Forecast Simulator (Single Model: GRU Fusion)
+    """
+    # --- Sidebar Configuration ---
+    st.sidebar.markdown("### ⚙️ Konfigurasi Prediksi")
+    selected_ticker = st.sidebar.selectbox("Pilih Emiten:", EMITEN_LIST, key="forecast_ticker")
+    
+    # --- Header ---
+    st.markdown(f"""
+    <div class='page-header'>
+        <h2>Forecast Simulator: {selected_ticker}</h2>
+        <p>Prediksi Harga Saham H+1 Menggunakan GRU Fusion Model</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- Load Data & Resources ---
+    df_ticker = get_ticker_data(df, selected_ticker)
+    model = load_trained_model(selected_ticker)
+    scaler = load_specific_scaler(selected_ticker)
+
+    if df_ticker.empty:
+        st.warning("Data historis tidak tersedia.")
+        return
+
+    if model is None or scaler is None:
+        st.error("Gagal memuat Model atau Scaler. Periksa path file.")
+        return
+
+    # --- Information Box ---
+    st.markdown("""
+    <div class="info-box">
+        <h3>ℹ️ Model Architecture: GRU Fusion</h3>
+        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal. 
+        Model ini telah dilatih khusus untuk setiap emiten dan tidak memerlukan pemilihan model manual.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- Prediction Trigger ---
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        predict_btn = st.button("🚀 Jalankan Prediksi (Predict Next Day)", use_container_width=True)
+
+    if predict_btn:
+        with st.spinner('Sedang memproses data & menjalankan GRU Fusion...'):
             try:
-                # A. PREPARE DATA
-                my_bar.progress(10, text="Preprocessing Market Data...")
-                window_size = 60
-                raw_data = prepare_input_data(df_e, window_size)
+                # 1. Preprocessing Input
+                # Asumsi window_size = 60 (Standar time series), sesuaikan jika skripsi Anda pakai 30/90
+                WINDOW_SIZE = 60 
                 
-                if raw_data is not None:
-                    # B. LOAD MODELS
-                    my_bar.progress(30, text=f"Loading Baseline & Fusion Models for {selected_emiten}...")
-                    model_base, scaler = load_prediction_model(selected_emiten, 'baseline')
-                    model_fuse, _       = load_prediction_model(selected_emiten, 'fusion')
-                    
-                    if model_base and model_fuse:
-                        # C. SCALING & PREDICT
-                        my_bar.progress(60, text="Running Inference Engine...")
-                        data_scaled = scaler.transform(raw_data) 
-                        
-                        X_base = data_scaled[:, IDX_QUANT].reshape(1, window_size, len(IDX_QUANT))
-                        pred_base_sc = model_base.predict(X_base, verbose=0)[0]
-                        
-                        X_fuse_quant = data_scaled[:, IDX_QUANT].reshape(1, window_size, len(IDX_QUANT))
-                        X_fuse_qual  = data_scaled[:, IDX_QUAL].reshape(1, window_size, len(IDX_QUAL))
-                        pred_fuse_sc = model_fuse.predict([X_fuse_quant, X_fuse_qual], verbose=0)[0]
-                        
-                        # D. INVERSE SCALING
-                        my_bar.progress(80, text="Denormalizing Output...")
-                        def inverse_price(pred_array, scaler):
-                            dummy = np.zeros((len(pred_array), len(IDX_QUANT) + len(IDX_QUAL)))
-                            dummy[:, 0] = pred_array 
-                            inv = scaler.inverse_transform(dummy)
-                            return inv[:, 0]
-                        
-                        price_base = inverse_price(pred_base_sc, scaler)
-                        price_fuse = inverse_price(pred_fuse_sc, scaler)
-                        
-                        # E. GENERATE DATES
-                        last_date = df_e['date'].max()
-                        dates_fut = pd.date_range(last_date + timedelta(days=1), periods=3)
-                        
-                        # Selesai Loading
-                        my_bar.progress(100, text="Completed.")
-                        my_bar.empty()
+                # Mengambil fitur input
+                input_data = prepare_inputs(df_ticker, window_size=WINDOW_SIZE)
+                
+                # Cek kecukupan data
+                if len(input_data) < WINDOW_SIZE:
+                    st.error(f"Data tidak cukup. Membutuhkan minimal {WINDOW_SIZE} baris data.")
+                    return
 
-                        # --- 3. RESULT DASHBOARD ---
-                        st.markdown("---")
-                        st.subheader("🎯 Forecast Results")
+                # Scaling data
+                # Scaler mengharapkan input 2D (samples, features)
+                input_scaled = scaler.transform(input_data)
+                
+                # Reshape untuk input model LSTM/GRU: (1, window_size, features)
+                X_input = np.array([input_scaled])
+                
+                # 2. Prediction
+                # GRU Fusion mungkin menerima 1 input (Time Series) atau 2 input (TS + Sentiment)
+                # Kode ini mencoba input standar Time Series dulu. 
+                # Jika model Anda strict multi-input, formatnya: model.predict([X_input, X_sentiment])
+                
+                try:
+                    predicted_scaled = model.predict(X_input)
+                except:
+                    # Fallback jika model multimodal (misal butuh dummy input kedua)
+                    # Ini pencegahan error jika input shape tidak match
+                    st.warning("Terdeteksi input shape mismatch. Mencoba penyesuaian dimensi...")
+                    predicted_scaled = model.predict([X_input, X_input]) # Contoh dummy fusion
 
-                        # A. SUMMARY CARDS (Highlight Key Numbers)
-                        # Kita hitung rata-rata selisih untuk melihat sentimen
-                        avg_diff = np.mean(price_fuse - price_base)
-                        sentiment_signal = "Bullish Bias" if avg_diff > 0 else "Bearish Bias"
-                        signal_color = "#10b981" if avg_diff > 0 else "#ef4444"
+                # 3. Inverse Scaling
+                # Kita perlu melakukan inverse transform. 
+                # Karena scaler fit pada N fitur, kita perlu membuat dummy array untuk inverse
+                # Asumsi: Target prediksi (Close Price) adalah kolom tertentu.
+                
+                # Trik Inverse Transform:
+                # Buat array kosong dengan shape yang sama dengan input terakhir
+                dummy_array = np.zeros((1, input_data.shape[1]))
+                
+                # Isi kolom target dengan hasil prediksi
+                # Asumsi: Kolom 'Close' adalah kolom ke-3 (index 3) jika urutan: Open, High, Low, Close...
+                # Namun cara paling aman adalah me-restore semua dimensi jika scaler dipakai untuk semua
+                
+                # Simplifikasi: Kita anggap output model adalah 1 nilai (Close Price scaled)
+                # Kita masukkan nilai ini ke posisi kolom 'Close' pada dummy array
+                # Cari index kolom 'Close'
+                numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
+                try:
+                    close_col_idx = numeric_cols.index('Close')
+                except:
+                    close_col_idx = 3 # Default fallback
+                
+                dummy_array[0, close_col_idx] = predicted_scaled[0][0]
+                
+                # Inverse
+                prediction_result = scaler.inverse_transform(dummy_array)[0, close_col_idx]
+                
+                # Ambil harga terakhir (Real)
+                last_actual_price = df_ticker['Close'].iloc[-1]
+                
+                # Hitung arah pergerakan
+                movement = prediction_result - last_actual_price
+                movement_pct = (movement / last_actual_price) * 100
+                direction_emoji = "📈 Naik" if movement > 0 else "📉 Turun"
+                direction_color = "green" if movement > 0 else "red"
 
-                        kpi1, kpi2, kpi3 = st.columns(3)
-                        
-                        # Style khusus untuk KPI Card Result
-                        def kpi_card(label, value, sub, border_color="#e5e7eb"):
-                            st.markdown(f"""
-                            <div style="border: 1px solid {border_color}; border-radius: 10px; padding: 15px; background: white;">
-                                <div style="color: #6b7280; font-size: 12px; font-weight: 600;">{label}</div>
-                                <div style="color: #111827; font-size: 20px; font-weight: 700; margin-top: 5px;">{value}</div>
-                                <div style="color: {border_color}; font-size: 12px; margin-top: 2px;">{sub}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                        with kpi1:
-                            kpi_card("Baseline Target (H+1)", f"Rp {int(price_base[0]):,}", "Conservative / Technical Only", "#2563eb") # Blue
-                        with kpi2:
-                            kpi_card("Fusion Target (H+1)", f"Rp {int(price_fuse[0]):,}", "Sentiment Adjusted", "#f59e0b") # Orange
-                        with kpi3:
-                            diff_val = int(price_fuse[0] - price_base[0])
-                            sign = "+" if diff_val > 0 else ""
-                            kpi_card("Sentiment Impact (Alpha)", f"{sign}Rp {diff_val:,}", sentiment_signal, signal_color)
-
-                        # B. FAN CHART
-                        st.markdown("###")
-                        st.markdown("**📉 Trajectory Visualization**")
-                        fig_pred = plot_interactive_forecast(df_e, price_base, price_fuse, dates_fut, selected_emiten)
-                        # Tweak chart height/margin for dashboard feel
-                        fig_pred.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=450)
-                        st.plotly_chart(fig_pred, use_container_width=True)
-                        
-                        # C. DETAILED TABLE (Clean Look)
-                        with st.expander("🔎 View Detailed Projection Table", expanded=True):
-                            res_df = pd.DataFrame({
-                                'Target Date': dates_fut.strftime('%d %b %Y'),
-                                'Baseline Prediction': price_base,
-                                'Fusion Prediction': price_fuse,
-                                'Spread (Rp)': price_fuse - price_base,
-                                'Spread (%)': ((price_fuse - price_base) / price_base) * 100
-                            })
-                            
-                            st.dataframe(
-                                res_df, 
-                                use_container_width=True, 
-                                hide_index=True,
-                                column_config={
-                                    "Baseline Prediction": st.column_config.NumberColumn(format="Rp %d"),
-                                    "Fusion Prediction": st.column_config.NumberColumn(format="Rp %d"),
-                                    "Spread (Rp)": st.column_config.NumberColumn(format="Rp %d"),
-                                    "Spread (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                                }
-                            )
-                        
-                    else:
-                        st.error("⚠️ Model Error: File .h5 tidak ditemukan atau rusak.")
-                else:
-                    st.error("⚠️ Data Error: Data historis tidak cukup untuk windowing.")
-            
-            except Exception as e:
-                st.error(f"❌ Execution Failed: {str(e)}")
-
-    # =========================================
-    # TAB 3: EVALUATION (PROFESSIONAL AUDIT UI)
-    # =========================================
-    with tab_eval:
-        st.markdown("### 📊 Model Performance Audit")
-        df_dm, df_horizon = load_evaluation_files()
-        
-        if df_dm is not None and df_horizon is not None:
-            # --- 1. EXECUTIVE SUMMARY (KPI CARDS) ---
-            # Hitung statistik kemenangan
-            baseline_wins = df_dm['Kesimpulan'].str.contains('BASELINE').sum()
-            fusion_wins = df_dm['Kesimpulan'].str.contains('FUSION').sum()
-            draws = df_dm['Kesimpulan'].str.contains('Seri').sum()
-            
-            # Tampilkan dalam Card
-            st.markdown("""
-            <div style="background-color: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 20px;">
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: center;">
-                    <div>
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Baseline Wins</p>
-                        <p style="margin: 5px 0 0 0; color: #2563eb; font-size: 24px; font-weight: 800;">""" + str(baseline_wins) + """</p>
-                        <p style="margin: 0; color: #6b7280; font-size: 11px;">Conservative</p>
-                    </div>
-                    <div style="border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Statistical Draws</p>
-                        <p style="margin: 5px 0 0 0; color: #4b5563; font-size: 24px; font-weight: 800;">""" + str(draws) + """</p>
-                        <p style="margin: 0; color: #6b7280; font-size: 11px;">No Significant Diff.</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Fusion Wins</p>
-                        <p style="margin: 5px 0 0 0; color: #f59e0b; font-size: 24px; font-weight: 800;">""" + str(fusion_wins) + """</p>
-                        <p style="margin: 0; color: #6b7280; font-size: 11px;">Sentiment Driven</p>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # --- 2. DIEBOLD-MARIANO TEST (STYLED TABLE) ---
-            st.markdown("#### 1. Diebold-Mariano Significance Test")
-            st.info("Uji statistik untuk menentukan apakah perbedaan akurasi kedua model signifikan atau hanya kebetulan (Noise).")
-            
-            # Coloring Logic: Hijau jika P-Value < 0.05 (Signifikan)
-            def highlight_significant(val):
-                color = '#dcfce7' if val < 0.05 else 'white' # Light Green
-                return f'background-color: {color}'
-            
-            st.dataframe(
-                df_dm.style.applymap(highlight_significant, subset=['P-Value']),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "DM Statistic": st.column_config.NumberColumn(format="%.4f"),
-                    "P-Value": st.column_config.NumberColumn(format="%.4f"),
-                    "Kesimpulan": st.column_config.TextColumn(width="medium"),
-                }
-            )
-            
-            # --- 3. HORIZON DEGRADATION (CHART + TABLE) ---
-            st.markdown("---")
-            st.markdown("#### 2. Horizon Degradation Analysis (Stability)")
-            
-            # Layout: Kiri (Chart), Kanan (Tabel Detail)
-            c_h1, c_h2 = st.columns([2, 1])
-            
-            with c_h1:
-                # Data Cleaning (Persen String -> Float)
-                df_plot_h = df_horizon.copy()
-                cols_mape = ['MAPE H+1', 'MAPE H+2', 'MAPE H+3']
-                
-                # Cek jika data berupa string "2.5%", bersihkan. Jika float, biarkan.
-                for c in cols_mape:
-                    if df_plot_h[c].dtype == 'object':
-                        df_plot_h[c] = df_plot_h[c].astype(str).str.rstrip('%').astype('float')
-                
-                # Plotly Line Chart
-                import plotly.graph_objects as go
-                fig_h = go.Figure()
-                
-                # Warna-warni profesional
-                colors = ['#2563eb', '#db2777', '#ca8a04', '#16a34a', '#dc2626', '#9333ea', '#0891b2', '#4b5563']
-                
-                for idx, row in df_plot_h.iterrows():
-                    fig_h.add_trace(go.Scatter(
-                        x=['H+1', 'H+2', 'H+3'],
-                        y=[row['MAPE H+1'], row['MAPE H+2'], row['MAPE H+3']],
-                        mode='lines+markers',
-                        name=row['Emiten'],
-                        line=dict(width=2, color=colors[idx % len(colors)])
-                    ))
-                
-                fig_h.update_layout(
-                    title="Error Growth Curve (MAPE)",
-                    xaxis_title="Forecast Horizon",
-                    yaxis_title="MAPE (%)",
-                    template="plotly_white",
-                    height=350,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    legend=dict(orientation="h", y=-0.2),
-                    hovermode="x unified"
-                )
-                st.plotly_chart(fig_h, use_container_width=True)
-                
-            with c_h2:
-                st.markdown("**Detailed Metrics**")
-                st.dataframe(
-                    df_horizon, 
-                    use_container_width=True, 
-                    hide_index=True
-                )
-                
-        else:
-            st.error("❌ Data Evaluasi (DM Test / Horizon) tidak ditemukan. Pastikan file CSV tersedia di folder data/.")
-        
-    # =========================================
-    # TAB 4: EXPLAINABLE AI (MARKET DRIVERS DASHBOARD)
-    # =========================================
-    with tab_xai:
-        st.markdown("### 🧠 Market Drivers Analysis (SHAP)")
-        df_shap = load_shap_data()
-        
-        if not df_shap.empty:
-            # --- 1. CONFIGURATION & INSIGHT PANEL ---
-            c_config, c_insight = st.columns([1, 2])
-            
-            with c_config:
-                st.markdown("""
-                <div style="background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb;">
-                    <p style="color: #6b7280; font-size: 12px; font-weight: 700; margin-bottom: 10px;">ANALYSIS SCOPE</p>
-                """, unsafe_allow_html=True)
-                
-                view_mode = st.radio("Perspective:", ["Global (All Assets)", "Single Asset Focus"], label_visibility="collapsed")
-                
-                if view_mode == "Single Asset Focus":
-                    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True) # Spacer
-                    # Auto-select emiten yang sedang aktif di header
-                    idx_curr = EMITENS.index(selected_emiten) if selected_emiten in EMITENS else 0
-                    shap_emiten = st.selectbox("Select Ticker:", EMITENS, index=idx_curr)
-                
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-                # Legend Card
-                st.markdown("""
-                <div style="margin-top: 15px; background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb;">
-                    <p style="color: #6b7280; font-size: 12px; font-weight: 700; margin-bottom: 8px;">FEATURE CATEGORIES</p>
-                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                        <div style="width: 12px; height: 12px; background-color: #1f77b4; border-radius: 3px; margin-right: 8px;"></div>
-                        <span style="font-size: 13px; color: #374151;"><strong>Technical</strong> (Price, Vol, Indicators)</span>
-                    </div>
-                    <div style="display: flex; align-items: center;">
-                        <div style="width: 12px; height: 12px; background-color: #d62728; border-radius: 3px; margin-right: 8px;"></div>
-                        <span style="font-size: 13px; color: #374151;"><strong>Sentiment</strong> (News, Buzz)</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with c_insight:
-                # DATA PREPARATION FOR VISUALIZATION
-                if view_mode == "Global (All Assets)":
-                    df_viz = df_shap.groupby(['Feature', 'Feature Name', 'Category'])['Importance'].mean().reset_index()
-                    chart_title = "Global Market Drivers (Avg. Impact)"
-                    subject = "Market (LQ45)"
-                else:
-                    df_viz = df_shap[df_shap['Emiten'] == shap_emiten].copy()
-                    chart_title = f"Top Drivers for {shap_emiten}"
-                    subject = shap_emiten
-
-                # --- INTELLIGENT INSIGHT GENERATION ---
-                # Hitung Top 3 Drivers
-                df_sorted = df_viz.sort_values('Importance', ascending=False)
-                top_3_names = df_sorted.head(3)['Feature Name'].tolist()
-                top_3_cats = df_sorted.head(3)['Category'].tolist()
-                
-                # Logic Warna & Pesan
-                if 'Sentiment' in top_3_cats:
-                    insight_bg = "#fff7ed" # Orange Light
-                    insight_border = "#f97316" # Orange
-                    insight_icon = "🔥"
-                    insight_title = "High Sentiment Sensitivity"
-                    insight_text = f"Warning: <b>{subject}</b> is currently being driven heavily by News/Sentiment factors. Volatility is expected to be higher than technical projection."
-                else:
-                    insight_bg = "#eff6ff" # Blue Light
-                    insight_border = "#3b82f6" # Blue
-                    insight_icon = "🛡️"
-                    insight_title = "Technical Structure Dominant"
-                    insight_text = f"<b>{subject}</b> is behaving rationally according to technical indicators. News sentiment has minimal impact (Priced-in), making trend-following strategies safer."
-
-                # RENDER INSIGHT CARD HTML
+                # 4. Display Result (Prediction Card)
                 st.markdown(f"""
-                <div style="background-color: {insight_bg}; border-left: 5px solid {insight_border}; padding: 20px; border-radius: 8px; height: 100%;">
-                    <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                        <span style="font-size: 24px; margin-right: 10px;">{insight_icon}</span>
-                        <h3 style="margin: 0; color: #1f2937; font-size: 18px;">{insight_title}</h3>
+                <div class="prediction-card">
+                    <div class="prediction-main">
+                        <p style="color: rgba(255,255,255,0.8); margin-bottom: 0;">Prediksi Harga Penutupan Besok</p>
+                        <h2>Rp {prediction_result:,.0f}</h2>
+                        <div class="confidence-score" style="background: {'rgba(76, 209, 55, 0.2)' if movement > 0 else 'rgba(232, 65, 24, 0.2)'}">
+                            <span>{direction_emoji} ({movement_pct:+.2f}%)</span>
+                        </div>
                     </div>
-                    <p style="color: #4b5563; font-size: 14px; line-height: 1.5; margin-bottom: 15px;">
-                        {insight_text}
-                    </p>
-                    <p style="color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0;">
-                        Top 3 Drivers: <span style="color: #111827;">{', '.join(top_3_names)}</span>
-                    </p>
+                    <div style="margin-top: 2rem; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 1rem;">
+                        <p style="color: white;">Harga Terakhir (Actual): <strong>Rp {last_actual_price:,.0f}</strong></p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Recommendation Card
+                rec_text = "Pertimbangkan untuk **Buy/Hold** jika indikator teknikal lain mendukung." if movement > 0 else "Waspada potensi koreksi, pertimbangkan **Wait & See**."
+                st.markdown(f"""
+                <div class="recommendation-card">
+                    <h4>💡 AI Recommendation</h4>
+                    <p>{rec_text}</p>
+                    <ul>
+                        <li>Model: GRU Fusion (Multimodal)</li>
+                        <li>Dataset: {selected_ticker} (Updated)</li>
+                    </ul>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # --- 2. MAIN VISUALIZATION ---
-            st.markdown("###") # Spacer
-            fig_shap = plot_interactive_shap(df_viz, chart_title)
-            # Sedikit styling layout chart agar pas dengan card di atas
-            fig_shap.update_layout(margin=dict(t=30, l=0, r=0, b=0), height=450)
-            st.plotly_chart(fig_shap, use_container_width=True)
-            
-            # --- 3. RAW DATA (Optional but Pro) ---
-            with st.expander("🔎 Audit Raw SHAP Values"):
-                st.dataframe(
-                    df_viz.sort_values('Importance', ascending=False)[['Feature Name', 'Category', 'Importance']], 
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Importance": st.column_config.ProgressColumn(
-                            "Impact Score",
-                            format="%.4f",
-                            min_value=0,
-                            max_value=df_viz['Importance'].max(),
-                        ),
-                        "Category": st.column_config.TextColumn("Type"),
-                    }
-                )
-            
-        else:
-            st.error("⚠️ SHAP Data Unavailable. Please run the model interpretation pipeline first.")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat melakukan prediksi: {str(e)}")
+                st.info("Tips: Pastikan jumlah fitur dalam file CSV sama persis dengan jumlah fitur saat model dilatih (Scaler mismatch).")
 
-# --- FOOTER ---
-st.markdown("<br><div style='text-align: center; color: #9ca3af; font-size: 12px;'>© 2025 Rafli Nugraha - Business Statistics ITS</div>", unsafe_allow_html=True)
+# ==========================================
+# 6. HALAMAN: MODEL EVALUATION (MAPE & RMSE)
+# ==========================================
+
+def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
+    """
+    Menghitung MAPE dan RMSE pada data testing (misal: 30 hari terakhir).
+    """
+    try:
+        # Siapkan data
+        # Kita butuh (window_size + test_days) data terakhir untuk memprediksi test_days
+        required_len = window_size + test_days
+        if len(df_ticker) < required_len:
+            return None, None
+        
+        # Ambil data untuk testing
+        numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
+        data_subset = df_ticker[numeric_cols].tail(required_len).values
+        
+        # Scale
+        data_scaled = scaler.transform(data_subset)
+        
+        X_test = []
+        y_true_scaled = []
+        
+        # Buat sequence
+        for i in range(window_size, len(data_scaled)):
+            X_test.append(data_scaled[i-window_size:i])
+            # Asumsi: Target (Close) ada di kolom tertentu. 
+            # Kita ambil row i, dan semua kolom (nanti kita ambil close saat inverse)
+            y_true_scaled.append(data_scaled[i])
+            
+        X_test = np.array(X_test)
+        y_true_scaled = np.array(y_true_scaled)
+        
+        # Predict
+        # Handle input shape mismatch (seperti di forecast simulator)
+        try:
+            y_pred_scaled = model.predict(X_test, verbose=0)
+        except:
+            y_pred_scaled = model.predict([X_test, X_test], verbose=0) # Dummy fusion
+            
+        # Inverse Transform
+        # Kita perlu mengembalikan ke skala asli untuk menghitung MAPE/RMSE yang valid
+        
+        # Cari index kolom Close
+        try:
+            close_col_idx = numeric_cols.index('Close')
+        except:
+            close_col_idx = 3 # Default fallback
+            
+        # Helper untuk inverse spesifik kolom Close
+        def inverse_close_price(scaled_data_2d):
+            # Buat dummy array seukuran jumlah fitur scaler
+            dummy = np.zeros((len(scaled_data_2d), data_subset.shape[1]))
+            # Masukkan data prediksi ke kolom Close
+            # Asumsi output model (N, 1)
+            dummy[:, close_col_idx] = scaled_data_2d.flatten()
+            inv = scaler.inverse_transform(dummy)
+            return inv[:, close_col_idx]
+
+        y_pred_actual = inverse_close_price(y_pred_scaled)
+        
+        # Untuk y_true, kita tidak perlu dummy karena kita punya data lengkap
+        y_true_actual = scaler.inverse_transform(y_true_scaled)[:, close_col_idx]
+        
+        # Hitung Metrics
+        rmse = math.sqrt(mean_squared_error(y_true_actual, y_pred_actual))
+        mape = mean_absolute_percentage_error(y_true_actual, y_pred_actual)
+        
+        return mape, rmse
+        
+    except Exception as e:
+        print(f"Error calculating metrics: {e}")
+        return None, None
+
+def show_model_evaluation(df):
+    """
+    Menampilkan halaman Evaluasi Model (Scorecard MAPE & RMSE)
+    """
+    st.markdown("""
+    <div class='page-header'>
+        <h2>Model Evaluation</h2>
+        <p>Performa Model GRU Fusion pada Data Testing (30 Hari Terakhir)</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Tombol untuk memulai kalkulasi (karena berat)
+    if st.button("🔄 Hitung Ulang Metrik Evaluasi"):
+        
+        results = []
+        progress_bar = st.progress(0)
+        
+        for idx, ticker in enumerate(EMITEN_LIST):
+            # Update status
+            progress_bar.progress((idx + 1) / len(EMITEN_LIST))
+            
+            # Load resources
+            df_tick = get_ticker_data(df, ticker)
+            model = load_trained_model(ticker)
+            scaler = load_specific_scaler(ticker)
+            
+            if model and scaler and not df_tick.empty:
+                mape, rmse = calculate_metrics(df_tick, model, scaler)
+                
+                if mape is not None:
+                    results.append({
+                        "Emiten": ticker,
+                        "Model": "GRU Fusion",
+                        "MAPE": f"{mape:.4%}", # Format persentase
+                        "RMSE": f"{rmse:,.2f}", # Format desimal
+                        "Status": "✅ Optimal" if mape < 0.1 else "⚠️ Warning"
+                    })
+                else:
+                    results.append({"Emiten": ticker, "Model": "Error", "MAPE": "-", "RMSE": "-", "Status": "❌ Fail"})
+            else:
+                results.append({"Emiten": ticker, "Model": "Not Found", "MAPE": "-", "RMSE": "-", "Status": "❌ Missing"})
+        
+        # Tampilkan Tabel Hasil
+        st.markdown("### 🏆 Performance Scorecard")
+        
+        # Konversi ke DataFrame untuk tampilan tabel yang bagus
+        results_df = pd.DataFrame(results)
+        
+        # Styling custom untuk tabel
+        st.dataframe(
+            results_df.style.applymap(
+                lambda x: 'color: green; font-weight: bold' if x == '✅ Optimal' else 'color: red' if 'Fail' in str(x) else '',
+                subset=['Status']
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        # Insight Box
+        avg_mape = pd.Series([float(x['MAPE'].strip('%'))/100 for x in results if 'MAPE' in x and x['MAPE'] != '-']).mean()
+        
+        st.markdown(f"""
+        <div class="insight-card">
+            <h4>📝 Analisis Performa</h4>
+            <p>Rata-rata MAPE untuk seluruh portofolio emiten adalah <strong>{avg_mape:.2%}</strong>.</p>
+            <p>Nilai RMSE menunjukkan deviasi standar residual prediksi dalam satuan Rupiah. 
+            Semakin kecil nilai MAPE dan RMSE, semakin akurat performa model GRU Fusion dalam memprediksi harga saham.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    else:
+        # Tampilan Default sebelum tombol ditekan
+        st.info("Klik tombol di atas untuk menjalankan evaluasi real-time pada 5 model sekaligus.")
+        
+        # Placeholder Static (Agar tidak kosong saat load awal)
+        st.markdown("#### Preview Struktur Evaluasi")
+        dummy_df = pd.DataFrame({
+            "Emiten": EMITEN_LIST,
+            "Model": ["GRU Fusion"] * 5,
+            "MAPE": ["Calculating..."] * 5,
+            "RMSE": ["Calculating..."] * 5,
+            "Status": ["Waiting..."] * 5
+        })
+        st.dataframe(dummy_df, use_container_width=True, hide_index=True)
+
+# ==========================================
+# 7. MAIN APP LOGIC
+# ==========================================
+
+def main():
+    # Load Main Dataset Sekali Saja
+    df = load_dataset()
+    
+    if df.empty:
+        st.error("Gagal memuat dataset utama. Pastikan path file CSV benar.")
+        return
+
+    # Sidebar Navigation
+    with st.sidebar:
+        st.markdown("<div class='sidebar-header'><h2>MENU SKRIPSI</h2></div>", unsafe_allow_html=True)
+        
+        selected_page = st.radio(
+            "",
+            ["🏠 Market Overview", "🔮 Forecast Simulator", "📉 Model Evaluation"],
+            index=0
+        )
+        
+        st.markdown("---")
+        st.markdown("""
+        <div style='text-align: center; color: #666;'>
+            <p><strong>Created by:</strong><br>Hana - Statistika ITS</p>
+            <p style='font-size: 0.8em'>Thesis Project 2025</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Routing
+    if selected_page == "🏠 Market Overview":
+        show_market_overview(df)
+    
+    elif selected_page == "🔮 Forecast Simulator":
+        show_forecast_simulator(df)
+        
+    elif selected_page == "📉 Model Evaluation":
+        show_model_evaluation(df)
+
+if __name__ == "__main__":
+    main()
