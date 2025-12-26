@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 
-# --- IMPORT LENGKAP (Pastikan semua fungsi ter-import) ---
+# --- IMPORT LENGKAP ---
 from utils.data_loader import (
     load_dataset, 
     load_prediction_model, 
@@ -28,20 +28,31 @@ st.set_page_config(
 with open('style.css') as f:
     st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 
-# 3. HEADER
-col_brand, col_sel = st.columns([3, 1])
-with col_brand:
-    st.title("Stock Fusion AI")
-    st.markdown("<div style='margin-top: -15px; color: #6b7280;'>Institutional-Grade Forecasting with Multimodal Attention</div>", unsafe_allow_html=True)
+# 3. HEADER & SELECTOR (DIGABUNG BIAR VAR 'selected_emiten' AMAN)
+c1, c2 = st.columns([3, 1])
 
-with col_sel:
+with c1:
+    st.markdown("""
+    <div style='display: flex; align-items: center; gap: 10px;'>
+        <h1 style='margin:0;'>Stock Fusion AI</h1>
+        <span style='background:#DCFCE7; color:#166534; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;'>● LIVE MARKET</span>
+    </div>
+    <p style='color:#6B7280; margin-top:5px; font-size:16px;'>
+        Institutional-grade forecasting engine powered by <strong>Multimodal LSTM & Attention Mechanism</strong>.
+    </p>
+    """, unsafe_allow_html=True)
+
+with c2:
+    # Selector dipindah ke sini agar variabelnya terdefinisi sebelum dipakai filter
     selected_emiten = st.selectbox("", EMITENS, label_visibility="collapsed")
 
 st.divider()
 
 # 4. LOAD DATA UTAMA
-df = load_dataset()
+with st.spinner("Connecting to Market Data Engine..."):
+    df = load_dataset()
 
+# 5. MAIN LOGIC (Sekarang aman karena 'selected_emiten' sudah ada)
 if not df.empty and selected_emiten in df['relevant_issuer'].values:
     # Filter Data Emiten & Sort
     df_e = df[df['relevant_issuer'] == selected_emiten].sort_values('date')
@@ -61,7 +72,8 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
     with m4:
         sentiment_score = last_row['X7']
         delta_sent = sentiment_score - prev_row['X7']
-        st.metric("Sentiment Index", f"{sentiment_score:.3f}", f"{delta_sent:.3f}")
+        # Custom color logic for Delta
+        st.metric("Sentiment Index", f"{sentiment_score:.3f}", f"{delta_sent:.3f}", delta_color="normal") 
 
     st.markdown("###")
     
@@ -107,7 +119,7 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
             st.dataframe(df_table, use_container_width=True, hide_index=True)
 
     # =========================================
-    # TAB 2: FORECAST SIMULATOR (DIPERBAIKI)
+    # TAB 2: FORECAST SIMULATOR
     # =========================================
     with tab_pred:
         st.markdown("### 🔮 Real-time Prediction Simulator")
@@ -124,7 +136,7 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
                 if raw_data is not None:
                     # B. LOAD MODELS
                     model_base, scaler = load_prediction_model(selected_emiten, 'baseline')
-                    model_fuse, _      = load_prediction_model(selected_emiten, 'fusion')
+                    model_fuse, _       = load_prediction_model(selected_emiten, 'fusion')
                     
                     if model_base and model_fuse:
                         # C. SCALING & PREDICT
@@ -176,7 +188,16 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
                             'Fusion (IDR)': price_fuse.astype(int),
                             'Selisih (Alpha)': (price_fuse - price_base).astype(int)
                         })
-                        st.dataframe(res_df, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            res_df, 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "Baseline (IDR)": st.column_config.NumberColumn(format="Rp %d"),
+                                "Fusion (IDR)": st.column_config.NumberColumn(format="Rp %d"),
+                                "Selisih (Alpha)": st.column_config.NumberColumn(format="Rp %d"),
+                            }
+                        )
                         
                     else:
                         st.error("Gagal memuat model. Pastikan file .h5 tersedia di folder models/.")
@@ -211,6 +232,7 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
             
             with c_sel2:
                 if view_mode == "Specific Issuer":
+                    # Auto-select emiten yang sedang aktif di header
                     shap_emiten = st.selectbox("Pilih Emiten:", EMITENS, index=EMITENS.index(selected_emiten) if selected_emiten in EMITENS else 0)
                 else:
                     st.info("Menampilkan rata-rata kontribusi fitur dari seluruh 8 emiten LQ45.")
@@ -233,7 +255,7 @@ if not df.empty and selected_emiten in df['relevant_issuer'].values:
             st.error("File 'shap_values_summary.csv' belum ditemukan.")
 
 else:
-    st.error(f"Data untuk {selected_emiten} tidak ditemukan.")
+    st.error(f"Data untuk {selected_emiten} tidak ditemukan. Periksa folder data/.")
 
 # --- FOOTER ---
 st.markdown("<br><div style='text-align: center; color: #9ca3af; font-size: 12px;'>© 2025 Rafli Nugraha - Business Statistics ITS</div>", unsafe_allow_html=True)

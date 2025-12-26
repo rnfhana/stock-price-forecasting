@@ -1,78 +1,97 @@
 /* Import Font Inter (Standard Fintech Modern) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* GLOBAL RESET & TYPOGRAPHY */
+/* GLOBAL THEME */
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
-    color: #333333;
-    background-color: #F7F9FC; /* Light Blue-Grey Background (Soft) */
+    color: #111827; /* Almost Black */
+    background-color: #F3F4F6; /* Cool Gray 100 */
 }
 
-/* HIDE STREAMLIT DEFAULT ELEMENTS */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
+/* HIDE JUNK */
+#MainMenu, footer, header {visibility: hidden;}
 
-/* CONTAINER STYLING */
+/* CONTAINER FIX */
 .block-container {
-    padding-top: 1.5rem;
-    padding-bottom: 3rem;
-    max-width: 95% !important;
+    padding-top: 2rem;
+    padding-bottom: 5rem;
+    max-width: 90% !important;
 }
 
-/* METRIC CARDS (Custom Class) */
-div[data-testid="stMetricValue"] {
-    font-size: 28px;
-    font-weight: 700;
-    color: #0e1117;
-}
-
+/* --- METRIC CARDS (THE PLUANG STYLE) --- */
 div[data-testid="metric-container"] {
     background-color: #FFFFFF;
-    border: 1px solid #E6E8EB;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.03);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: none; /* Robinhood gak pake border garis */
+    padding: 24px;
+    border-radius: 16px; /* Lebih rounded */
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04); /* Shadow super soft */
+    transition: all 0.2s ease;
 }
 
 div[data-testid="metric-container"]:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-    border-color: #0052CC;
+    transform: translateY(-4px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
 }
 
-/* TABS STYLING */
-div[data-testid="stTabs"] button[aria-selected="true"] {
-    color: #0052CC !important;
-    border-top-color: #0052CC !important;
-    font-weight: 600;
+div[data-testid="stMetricLabel"] {
+    font-size: 14px;
+    font-weight: 500;
+    color: #6B7280; /* Gray 500 */
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-div[data-testid="stTabs"] button {
-    font-weight: 400;
-    color: #6b7280;
-}
-
-/* SIDEBAR */
-section[data-testid="stSidebar"] {
-    background-color: #FFFFFF;
-    border-right: 1px solid #E6E8EB;
-}
-
-/* CUSTOM CARDS */
-.custom-card {
-    background-color: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    margin-bottom: 20px;
-    border: 1px solid #f3f4f6;
-}
-
-/* HEADINGS */
-h1, h2, h3 {
+div[data-testid="stMetricValue"] {
+    font-size: 32px !important; /* Angka Besar */
+    font-weight: 800 !important; /* Extra Bold */
     color: #111827;
+    margin-top: 4px;
+}
+
+div[data-testid="stMetricDelta"] {
+    font-weight: 600;
+    font-size: 14px;
+    background-color: #ECFDF5; /* Green 50 background pill */
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-top: 8px;
+}
+/* Pakai Selector CSS 'Contains' agak susah di Streamlit murni, tapi ini trik warna */
+/* Delta Negatif otomatis merah dari Streamlit, Positif Hijau */
+
+/* --- TABS --- */
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #10B981 !important; /* Emerald Green */
+    border-bottom: 3px solid #10B981 !important;
+    border-top: none !important;
     font-weight: 700;
-    letter-spacing: -0.02em;
+}
+div[data-testid="stTabs"] button {
+    font-size: 16px;
+    font-weight: 500;
+    color: #9CA3AF;
+}
+
+/* --- DROPDOWN / SELECTBOX --- */
+div[data-baseweb="select"] > div {
+    background-color: white;
+    border-radius: 12px;
+    border: 1px solid #E5E7EB;
+    padding: 4px;
+}
+
+/* --- BUTTONS --- */
+button[kind="primary"] {
+    background-color: #10B981 !important;
+    border: none;
+    border-radius: 12px;
+    padding: 0.5rem 2rem;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+    transition: all 0.2s;
+}
+button[kind="primary"]:hover {
+    background-color: #059669 !important;
+    transform: scale(1.02);
 }

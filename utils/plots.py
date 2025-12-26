@@ -4,90 +4,67 @@ import pandas as pd
 
 def plot_advanced_technical(df, emiten):
     """
-    Advanced Charting: Candlestick + Volume + MACD/RSI
+    Robinhood-style Charting: Clean, Minimalist, Interactive
     """
-    # PERBAIKAN: Gunakan seluruh data yang dikirim dari Home.py
-    # Jangan dipotong .tail(150) lagi!
     df_plot = df.copy()
     
-    # Create Subplots: 3 Rows
-    # Row 1: Candlestick (Main) - 55% height
-    # Row 2: Volume - 20% height
-    # Row 3: MACD/RSI - 25% height
+    # Warna Candlestick Modern (Pluang Style)
+    incr_color = '#00C853' # Vivid Green
+    decr_color = '#FF3D00' # Vivid Red
+    
+    # Layout: Harga (70%), Volume (30%) - Indikator MACD/RSI opsional/hidden by default biar bersih
     fig = make_subplots(
-        rows=3, cols=1, 
+        rows=2, cols=1, 
         shared_xaxes=True, 
-        vertical_spacing=0.03,
-        row_heights=[0.55, 0.20, 0.25],
-        specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": True}]]
+        vertical_spacing=0.05,
+        row_heights=[0.7, 0.3],
+        specs=[[{"secondary_y": False}], [{"secondary_y": False}]]
     )
 
-    # --- 1. CANDLESTICK (Main) ---
+    # 1. PRICE LINE (Area Chart ala Robinhood - Lebih clean drpd Candle kadang)
+    # TAPI karena ini analisis teknikal, Candle tetap terbaik. Kita buat Candle yg clean.
     fig.add_trace(go.Candlestick(
         x=df_plot['date'],
-        open=df_plot['X1'],   # Open
-        high=df_plot['X2'],   # High
-        low=df_plot['X3'],    # Low
-        close=df_plot['Yt'],  # Close
-        name='Price',
-        increasing_line_color='#00C076', # Growth Green
-        decreasing_line_color='#FF4B4B'  # Loss Red
+        open=df_plot['X1'], high=df_plot['X2'],
+        low=df_plot['X3'], close=df_plot['Yt'],
+        name='OHLC',
+        increasing_line_color=incr_color,
+        decreasing_line_color=decr_color,
+        increasing_fillcolor=incr_color, # Isi badan candle
+        decreasing_fillcolor=decr_color
     ), row=1, col=1)
 
-    # --- 2. VOLUME (Bar) ---
-    # Warna volume ikut trend harga
-    colors = ['#00C076' if row['Yt'] >= row['X1'] else '#FF4B4B' for index, row in df_plot.iterrows()]
-    
+    # Moving Average (Pemanis wajib)
+    fig.add_trace(go.Scatter(
+        x=df_plot['date'], y=df_plot['Yt'].rolling(window=20).mean(),
+        name='MA20', line=dict(color='#2962FF', width=1.5), opacity=0.7
+    ), row=1, col=1)
+
+    # 2. VOLUME (Bar Chart Minimalis)
+    vol_colors = [incr_color if c >= o else decr_color for c, o in zip(df_plot['Yt'], df_plot['X1'])]
     fig.add_trace(go.Bar(
-        x=df_plot['date'],
-        y=df_plot['X4'], # Volume
-        name='Volume',
-        marker_color=colors,
-        opacity=0.5
+        x=df_plot['date'], y=df_plot['X4'],
+        name='Volume', marker_color=vol_colors, opacity=0.3 # Transparan biar gak ganggu
     ), row=2, col=1)
 
-    # --- 3. TECHNICALS (MACD & RSI) ---
-    # MACD (Blue) - Primary Y
-    fig.add_trace(go.Scatter(
-        x=df_plot['date'], y=df_plot['X5'], 
-        name='MACD', line=dict(color='#0052CC', width=1.5)
-    ), row=3, col=1, secondary_y=False)
-    
-    # RSI (Purple) - Secondary Y Axis
-    fig.add_trace(go.Scatter(
-        x=df_plot['date'], y=df_plot['X6'], 
-        name='RSI', line=dict(color='#8833FF', width=1.5, dash='dot')
-    ), row=3, col=1, secondary_y=True)
-
-    # Garis Batas RSI 30/70
-    fig.add_shape(type="line", row=3, col=1, xref="x", yref="y2",
-                  x0=df_plot['date'].iloc[0], x1=df_plot['date'].iloc[-1],
-                  y0=70, y1=70, line=dict(color="gray", width=1, dash="dash"))
-    fig.add_shape(type="line", row=3, col=1, xref="x", yref="y2",
-                  x0=df_plot['date'].iloc[0], x1=df_plot['date'].iloc[-1],
-                  y0=30, y1=30, line=dict(color="gray", width=1, dash="dash"))
-
-    # --- LAYOUT STYLING ---
+    # STYLING PARAH (Biar mahal)
     fig.update_layout(
-        title=dict(text=f"<b>{emiten}</b> Market Overview", font=dict(size=20)),
+        title=dict(text=f"<b>{emiten}</b> Price Action", font=dict(size=24, family="Inter")),
         template="plotly_white",
-        height=800, # Agak tinggi biar jelas
+        height=600,
         showlegend=False,
-        margin=dict(l=10, r=10, t=50, b=10),
-        
-        # Rangeslider PENTING: Agar user bisa zoom in/out manual
+        margin=dict(l=0, r=40, t=50, b=20),
         xaxis=dict(
-            rangeslider=dict(visible=True), 
+            rangeslider=dict(visible=False), # Hapus slider bawah yg jelek
+            showgrid=False,
             type="date"
         ),
-        hovermode="x unified"
+        yaxis=dict(showgrid=True, gridcolor='#F3F4F6', side='right'), # Harga di kanan ala TradingView
+        yaxis2=dict(showgrid=False, side='right', showticklabels=False), # Volume tanpa angka y-axis
+        hovermode="x unified",
+        paper_bgcolor='rgba(0,0,0,0)', # Transparan
+        plot_bgcolor='rgba(0,0,0,0)'
     )
-    
-    # Y-Axis Settings
-    fig.update_yaxes(title_text="Price (IDR)", row=1, col=1)
-    fig.update_yaxes(title_text="Vol", row=2, col=1, showgrid=False)
-    fig.update_yaxes(title_text="MACD", row=3, col=1, secondary_y=False)
-    fig.update_yaxes(title_text="RSI", row=3, col=1, secondary_y=True, range=[0, 100], showgrid=False)
 
     return fig
 
