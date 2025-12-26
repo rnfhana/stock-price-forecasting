@@ -4,12 +4,11 @@ import numpy as np
 import tensorflow as tf
 import joblib
 import base64
-from pathlib import Path
 import os
+import math
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-import math
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN & CSS
@@ -23,7 +22,7 @@ st.set_page_config(
 )
 
 def load_css():
-    """Load custom CSS styling (Persis sesuai request)"""
+    """Load custom CSS styling"""
     st.markdown("""
     <style>
     /* Import Google Fonts */
@@ -119,51 +118,6 @@ def load_css():
     .feature-card p {
         color: #5a6c7d;
         line-height: 1.6;
-    }
-     
-    /* Waste Categories (Diadaptasi untuk Layout Grid) */
-    .waste-categories {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-     
-    .category-item {
-        background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
-        color: white;
-        font-weight: 500;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
-    }
-     
-    /* Features Grid */
-    .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-     
-    .feature-item {
-        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        text-align: center;
-    }
-     
-    .feature-item h4 {
-        color: #2c3e50;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-    }
-     
-    .feature-item p {
-        color: #5a6c7d;
-        font-size: 0.9rem;
-        margin: 0;
     }
      
     /* Stats Card */
@@ -381,14 +335,6 @@ def load_css():
         .page-header h2 {
             font-size: 1.5rem;
         }
-         
-        .features-grid {
-            grid-template-columns: 1fr;
-        }
-         
-        .waste-categories {
-            grid-template-columns: 1fr;
-        }
     }
      
     /* Button Styling */
@@ -432,25 +378,19 @@ def load_css():
     </style>
     """, unsafe_allow_html=True)
 
-# Memanggil Fungsi Load CSS
 load_css()
 
 # ==========================================
-# 2. KONFIGURASI PATHS & EMITEN (FIX FOR DEPLOYMENT)
+# 2. KONFIGURASI PATHS & EMITEN
 # ==========================================
 
-# Menggunakan Path Relatif agar jalan di Laptop & Streamlit Cloud
-# os.path.dirname... akan mengambil lokasi folder tempat Home.py berada
+# Path Relatif agar aman di Cloud
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 BASE_MODEL_PATH = os.path.join(BASE_DIR, "models")
 BASE_DATA_PATH = os.path.join(BASE_DIR, "data")
 
-# Daftar Emiten yang valid
 EMITEN_LIST = ["AKRA", "BBRI", "BMRI", "PGAS", "UNVR"]
 
-# Dictionary untuk mapping semua file path
-# Menggunakan os.path.join agar slash (/) atau backslash (\) otomatis menyesuaikan OS (Windows/Linux)
 FILES = {
     "data": {
         "main": os.path.join(BASE_DATA_PATH, "df_fusi_multimodal_final_hana.csv"),
@@ -473,44 +413,31 @@ FILES = {
 }
 
 # ==========================================
-# 3. DATA LOADING & PROCESSING FUNCTIONS (PERBAIKAN)
+# 3. DATA LOADING & PROCESSING FUNCTIONS
 # ==========================================
 
 @st.cache_data
 def load_dataset():
     """
-    Load main dataset dan lakukan renaming kolom sesuai variabel skripsi.
-    Mapping:
-    - date -> Date
-    - relevant_issuer -> Stock
-    - Yt -> Close (Harga Penutupan)
-    - X1 -> Open
-    - X2 -> High
-    - X3 -> Low
-    - X4 -> Volume
-    - X7 -> ATR
+    Load main dataset dan rename kolom sesuai data diagnosa.
     """
     try:
-        # Load Main Data
         df = pd.read_csv(FILES["data"]["main"])
         
-        # 1. RENAME KOLOM (Kamus Penerjemah)
-        # Agar kode visualisasi plotly bisa membaca data Anda
+        # Mapping Rename (Sesuai diagnosa user)
         rename_map = {
             'date': 'Date',
             'relevant_issuer': 'Stock',
-            'Yt': 'Close',      # Close Price Hari Ini
+            'Yt': 'Close',      # Close Price
             'X1': 'Open',       # Opening Price
             'X2': 'High',       # Highest Price
             'X3': 'Low',        # Lowest Price
             'X4': 'Volume',     # Volume
-            'X7': 'ATR'         # ATR (Sudah ada, tidak perlu hitung ulang)
+            'X7': 'ATR'         # ATR (Sudah ada)
         }
         
-        # Lakukan rename hanya jika kolomnya ada
         df.rename(columns=rename_map, inplace=True)
         
-        # 2. Convert Date
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'])
             df = df.sort_values('Date')
@@ -522,76 +449,47 @@ def load_dataset():
 
 @st.cache_data
 def load_shap_data():
-    """
-    Load data SHAP values summary.
-    """
     try:
         df_shap = pd.read_csv(FILES["data"]["shap"])
         return df_shap
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
-# CATATAN: Fungsi calculate_atr SAYA HAPUS 
-# karena di data Anda sudah ada variabel X7 (ATR). 
-# Kita pakai X7 asli dari skripsi agar akurat.
-
 def get_ticker_data(df, ticker):
-    """
-    Filter data berdasarkan emiten.
-    """
-    # Filter by Ticker (Kolom sudah direname jadi 'Stock')
     if 'Stock' in df.columns:
         df_ticker = df[df['Stock'] == ticker].copy()
     else:
-        # Fallback jika rename gagal
         df_ticker = df[df['relevant_issuer'] == ticker].copy() if 'relevant_issuer' in df.columns else df.copy()
     
-    # Sort by Date
     if 'Date' in df_ticker.columns:
         df_ticker = df_ticker.sort_values('Date')
     
     return df_ticker
 
-# Update fungsi prepare_inputs juga agar tidak salah ambil kolom target (Yt+1)
 def prepare_inputs(df_ticker, window_size=60):
     """
     Menyiapkan data input untuk prediksi.
-    FIX: Membuang kolom Yt+1 dan Yt-1 sesuai instruksi user agar sisa 12 fitur.
+    FIX: Membuang 'Yt+1' dan 'Yt-1' agar jumlah fitur pas 12.
     """
-    # 1. Tentukan kolom yang WAJIB DIBUANG
-    # Date/Stock: Bukan angka
-    # Yt+1: Target prediksi (kunci jawaban)
-    # Yt-1: User konfirmasi tidak dipakai
+    # List kolom yang HARUS DIBUANG
     drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1'] 
     
-    # 2. Buang kolom tersebut jika ada di dataframe
-    # Gunakan 'errors=ignore' agar tidak error jika kolom sudah tidak ada
+    # Buang kolom
     features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
     
-    # 3. Pastikan urutan kolom sesuai dengan saat training
-    # Ambil hanya kolom numerik yang tersisa (Harusnya sisa 12)
+    # Ambil numerik sisa (Harus 12)
     numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
     
-    # Debug (Optional): Print jumlah fitur ke terminal server
-    # print(f"Input Features ({len(numeric_cols)}): {numeric_cols}")
-    
-    # 4. Ambil data terakhir (windowing)
+    # Ambil window terakhir
     last_window = features_df[numeric_cols].tail(window_size).values
     
     return last_window
 
 # ==========================================
-# 4. HALAMAN: MARKET OVERVIEW
+# 4. CHART FUNCTIONS
 # ==========================================
 
 def plot_interactive_chart(df, ticker):
-    """
-    Membuat chart interaktif gabungan: 
-    Row 1: Candlestick/Line Chart (Harga)
-    Row 2: Volume
-    Row 3: ATR (Average True Range) -> Fitur Baru
-    """
-    # Create subplots with shared x-axis
     fig = make_subplots(
         rows=3, cols=1, 
         shared_xaxes=True,
@@ -600,7 +498,6 @@ def plot_interactive_chart(df, ticker):
         subplot_titles=(f'{ticker} Price Action', 'Volume', 'Average True Range (ATR)')
     )
 
-    # 1. Candlestick Chart
     fig.add_trace(go.Candlestick(
         x=df['Date'],
         open=df['Open'], high=df['High'],
@@ -608,21 +505,17 @@ def plot_interactive_chart(df, ticker):
         name='OHLC'
     ), row=1, col=1)
 
-    # 2. Volume Chart
     fig.add_trace(go.Bar(
         x=df['Date'], y=df['Volume'],
         name='Volume', marker_color='rgba(100, 149, 237, 0.5)'
     ), row=2, col=1)
 
-    # 3. ATR Chart (Fitur Baru)
-    # Pastikan ATR sudah dihitung di langkah sebelumnya
     if 'ATR' in df.columns:
         fig.add_trace(go.Scatter(
             x=df['Date'], y=df['ATR'],
-            name='ATR (14)', line=dict(color='#ff9f43', width=2)
+            name='ATR', line=dict(color='#ff9f43', width=2)
         ), row=3, col=1)
 
-    # Layout Styling
     fig.update_layout(
         height=800,
         showlegend=False,
@@ -631,25 +524,18 @@ def plot_interactive_chart(df, ticker):
         margin=dict(l=20, r=20, t=40, b=20),
         hovermode="x unified"
     )
-    
     return fig
 
 def show_market_overview(df):
-    """
-    Menampilkan halaman Market Overview
-    """
-    # --- Sidebar Filter Khusus Halaman Ini ---
     st.sidebar.markdown("### ⚙️ Konfigurasi Market")
     selected_ticker = st.sidebar.selectbox("Pilih Emiten:", EMITEN_LIST, index=0)
     
-    # Ambil data spesifik emiten & hitung ATR
     df_ticker = get_ticker_data(df, selected_ticker)
     
     if df_ticker.empty:
-        st.warning("Data tidak ditemukan untuk emiten ini.")
+        st.warning("Data tidak ditemukan.")
         return
 
-    # --- Header Halaman ---
     st.markdown(f"""
     <div class='page-header'>
         <h2>Market Overview: {selected_ticker}</h2>
@@ -657,7 +543,6 @@ def show_market_overview(df):
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Hitung Metrics Terkini ---
     last_data = df_ticker.iloc[-1]
     prev_data = df_ticker.iloc[-2]
     
@@ -665,11 +550,9 @@ def show_market_overview(df):
     price_change = current_price - prev_data['Close']
     pct_change = (price_change / prev_data['Close']) * 100
     
-    current_atr = last_data['ATR'] if not pd.isna(last_data['ATR']) else 0
+    current_atr = last_data['ATR'] if 'ATR' in last_data and not pd.isna(last_data['ATR']) else 0
     current_vol = last_data['Volume']
 
-    # --- Tampilkan Metrics Card (Menggunakan CSS Custom) ---
-    # Kita menggunakan HTML manual agar stylenya persis stats-card CSS
     st.markdown(f"""
     <div class="stats-card">
         <h3>Market Summary ({last_data['Date'].strftime('%d %b %Y')})</h3>
@@ -696,84 +579,39 @@ def show_market_overview(df):
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Tampilkan Chart ---
     st.markdown("### 📊 Interactive Chart")
     fig = plot_interactive_chart(df_ticker, selected_ticker)
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Tampilkan Raw Data (Expander) ---
     with st.expander("Lihat Data Historis Lengkap"):
-        st.dataframe(df_ticker.sort_values('Date', ascending=False).style.format({
-            'Open': '{:,.0f}', 'High': '{:,.0f}', 
-            'Low': '{:,.0f}', 'Close': '{:,.0f}', 
-            'Volume': '{:,.0f}', 'ATR': '{:.2f}'
-        }))
+        st.dataframe(df_ticker.sort_values('Date', ascending=False))
 
 # ==========================================
-# 5. HALAMAN: FORECAST SIMULATOR (GRU FUSION)
+# 5. FORECAST FUNCTIONS
 # ==========================================
 
 @st.cache_resource
 def load_trained_model(ticker):
-    """
-    Load model GRU Fusion spesifik untuk emiten yang dipilih.
-    Menggunakan cache resource agar tidak berat saat reload.
-    """
     model_path = FILES["models"].get(ticker)
-    if not model_path or not os.path.exists(model_path):
-        st.error(f"Model file not found for {ticker} at {model_path}")
-        return None
-    
     try:
-        # Load model .h5
         model = tf.keras.models.load_model(model_path, compile=False)
         return model
     except Exception as e:
-        st.error(f"Error loading model for {ticker}: {e}")
         return None
 
 @st.cache_resource
 def load_specific_scaler(ticker):
-    """
-    Load scaler .pkl spesifik untuk emiten.
-    """
     scaler_path = FILES["scalers"].get(ticker)
-    if not scaler_path or not os.path.exists(scaler_path):
-        st.error(f"Scaler file not found for {ticker}")
-        return None
-    
     try:
         scaler = joblib.load(scaler_path)
         return scaler
     except Exception as e:
-        st.error(f"Error loading scaler for {ticker}: {e}")
         return None
 
-def prepare_inputs(df_ticker, window_size=60):
-    """
-    Menyiapkan data input untuk prediksi (Sliding Window).
-    Mengambil 'window_size' data terakhir.
-    """
-    # Pastikan data yang diambil hanya kolom numerik yang digunakan saat training
-    # NOTE: Sesuaikan list 'features' ini dengan urutan fitur saat Anda melatih model
-    # Biasanya: Open, High, Low, Close, Volume, (mungkin ATR/Sentiment)
-    # Di sini kita ambil semua kolom numerik kecuali Date/Stock
-    numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
-    
-    # Ambil data terakhir sebanyak window_size
-    last_window = df_ticker[numeric_cols].tail(window_size).values
-    
-    return last_window
-
 def show_forecast_simulator(df):
-    """
-    Menampilkan halaman Forecast Simulator (Single Model: GRU Fusion)
-    """
-    # --- Sidebar Configuration ---
     st.sidebar.markdown("### ⚙️ Konfigurasi Prediksi")
     selected_ticker = st.sidebar.selectbox("Pilih Emiten:", EMITEN_LIST, key="forecast_ticker")
     
-    # --- Header ---
     st.markdown(f"""
     <div class='page-header'>
         <h2>Forecast Simulator: {selected_ticker}</h2>
@@ -781,105 +619,68 @@ def show_forecast_simulator(df):
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Load Data & Resources ---
     df_ticker = get_ticker_data(df, selected_ticker)
     model = load_trained_model(selected_ticker)
     scaler = load_specific_scaler(selected_ticker)
 
-    if df_ticker.empty:
-        st.warning("Data historis tidak tersedia.")
+    if df_ticker.empty or model is None or scaler is None:
+        st.error("Data, Model, atau Scaler tidak ditemukan. Periksa path file.")
         return
 
-    if model is None or scaler is None:
-        st.error("Gagal memuat Model atau Scaler. Periksa path file.")
-        return
-
-    # --- Information Box ---
     st.markdown("""
     <div class="info-box">
         <h3>ℹ️ Model Architecture: GRU Fusion</h3>
-        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal. 
-        Model ini telah dilatih khusus untuk setiap emiten dan tidak memerlukan pemilihan model manual.</p>
+        <p>Sistem ini menggunakan <strong>Gated Recurrent Unit (GRU)</strong> dengan arsitektur Fusion Multimodal.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Prediction Trigger ---
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         predict_btn = st.button("🚀 Jalankan Prediksi (Predict Next Day)", use_container_width=True)
 
     if predict_btn:
-        with st.spinner('Sedang memproses data & menjalankan GRU Fusion...'):
+        with st.spinner('Sedang memproses data...'):
             try:
-                # 1. Preprocessing Input
-                # Asumsi window_size = 60 (Standar time series), sesuaikan jika skripsi Anda pakai 30/90
                 WINDOW_SIZE = 60 
-                
-                # Mengambil fitur input
                 input_data = prepare_inputs(df_ticker, window_size=WINDOW_SIZE)
                 
-                # Cek kecukupan data
+                # Cek length
                 if len(input_data) < WINDOW_SIZE:
-                    st.error(f"Data tidak cukup. Membutuhkan minimal {WINDOW_SIZE} baris data.")
+                    st.error(f"Data kurang dari {WINDOW_SIZE} hari.")
                     return
 
-                # Scaling data
-                # Scaler mengharapkan input 2D (samples, features)
+                # Scaling
                 input_scaled = scaler.transform(input_data)
                 
-                # Reshape untuk input model LSTM/GRU: (1, window_size, features)
+                # Reshape (1, 60, 12)
                 X_input = np.array([input_scaled])
-                
-                # 2. Prediction
-                # GRU Fusion mungkin menerima 1 input (Time Series) atau 2 input (TS + Sentiment)
-                # Kode ini mencoba input standar Time Series dulu. 
-                # Jika model Anda strict multi-input, formatnya: model.predict([X_input, X_sentiment])
                 
                 try:
                     predicted_scaled = model.predict(X_input)
                 except:
-                    # Fallback jika model multimodal (misal butuh dummy input kedua)
-                    # Ini pencegahan error jika input shape tidak match
-                    st.warning("Terdeteksi input shape mismatch. Mencoba penyesuaian dimensi...")
-                    predicted_scaled = model.predict([X_input, X_input]) # Contoh dummy fusion
+                    # Fallback dummy fusion
+                    predicted_scaled = model.predict([X_input, X_input])
 
-                # 3. Inverse Scaling
-                # Kita perlu melakukan inverse transform. 
-                # Karena scaler fit pada N fitur, kita perlu membuat dummy array untuk inverse
-                # Asumsi: Target prediksi (Close Price) adalah kolom tertentu.
+                # Inverse Transform
+                # Cari index kolom 'Close' (Yt)
+                drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
+                features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
+                numeric_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
                 
-                # Trik Inverse Transform:
-                # Buat array kosong dengan shape yang sama dengan input terakhir
-                dummy_array = np.zeros((1, input_data.shape[1]))
-                
-                # Isi kolom target dengan hasil prediksi
-                # Asumsi: Kolom 'Close' adalah kolom ke-3 (index 3) jika urutan: Open, High, Low, Close...
-                # Namun cara paling aman adalah me-restore semua dimensi jika scaler dipakai untuk semua
-                
-                # Simplifikasi: Kita anggap output model adalah 1 nilai (Close Price scaled)
-                # Kita masukkan nilai ini ke posisi kolom 'Close' pada dummy array
-                # Cari index kolom 'Close'
-                numeric_cols = df_ticker.select_dtypes(include=[np.number]).columns.tolist()
                 try:
                     close_col_idx = numeric_cols.index('Close')
                 except:
-                    close_col_idx = 3 # Default fallback
-                
+                    close_col_idx = 0 
+
+                dummy_array = np.zeros((1, input_data.shape[1]))
                 dummy_array[0, close_col_idx] = predicted_scaled[0][0]
-                
-                # Inverse
                 prediction_result = scaler.inverse_transform(dummy_array)[0, close_col_idx]
                 
-                # Ambil harga terakhir (Real)
                 last_actual_price = df_ticker['Close'].iloc[-1]
-                
-                # Hitung arah pergerakan
                 movement = prediction_result - last_actual_price
                 movement_pct = (movement / last_actual_price) * 100
                 direction_emoji = "📈 Naik" if movement > 0 else "📉 Turun"
-                direction_color = "green" if movement > 0 else "red"
 
-                # 4. Display Result (Prediction Card)
                 st.markdown(f"""
                 <div class="prediction-card">
                     <div class="prediction-main">
@@ -895,55 +696,35 @@ def show_forecast_simulator(df):
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Recommendation Card
-                rec_text = "Pertimbangkan untuk **Buy/Hold** jika indikator teknikal lain mendukung." if movement > 0 else "Waspada potensi koreksi, pertimbangkan **Wait & See**."
-                st.markdown(f"""
-                <div class="recommendation-card">
-                    <h4>💡 AI Recommendation</h4>
-                    <p>{rec_text}</p>
-                    <ul>
-                        <li>Model: GRU Fusion (Multimodal)</li>
-                        <li>Dataset: {selected_ticker} (Updated)</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-
             except Exception as e:
-                st.error(f"Terjadi kesalahan saat melakukan prediksi: {str(e)}")
-                st.info("Tips: Pastikan jumlah fitur dalam file CSV sama persis dengan jumlah fitur saat model dilatih (Scaler mismatch).")
+                st.error(f"Terjadi kesalahan: {str(e)}")
 
 # ==========================================
-# 6. HALAMAN: MODEL EVALUATION (MAPE & RMSE)
+# 6. EVALUATION FUNCTIONS
 # ==========================================
 
 def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
     """
-    Menghitung MAPE dan RMSE.
-    FIX: Memastikan input data ke scaler hanya 12 fitur (buang Yt+1 dan Yt-1).
+    Hitung MAPE & RMSE dengan FIX drop Yt+1 & Yt-1
     """
     try:
-        # Siapkan data length
         required_len = window_size + test_days
         if len(df_ticker) < required_len:
             return None, None
         
-        # --- FIX KOLOM INPUT ---
+        # --- FIX DROP ---
         drop_cols = ['Date', 'Stock', 'relevant_issuer', 'Yt+1', 'Yt-1']
         features_df = df_ticker.drop(columns=drop_cols, errors='ignore')
         
-        # Ambil list nama kolom yang valid (12 fitur)
         valid_feature_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
-        
-        # Ambil data subset untuk testing (Hanya kolom valid)
         data_subset = features_df[valid_feature_cols].tail(required_len).values
         
-        # Scale Data (Sekarang shape-nya pasti (N, 12) -> Aman!)
+        # Scaling
         data_scaled = scaler.transform(data_subset)
         
         X_test = []
         y_true_scaled = []
         
-        # Buat sequence
         for i in range(window_size, len(data_scaled)):
             X_test.append(data_scaled[i-window_size:i])
             y_true_scaled.append(data_scaled[i])
@@ -951,53 +732,35 @@ def calculate_metrics(df_ticker, model, scaler, window_size=60, test_days=30):
         X_test = np.array(X_test)
         y_true_scaled = np.array(y_true_scaled)
         
-        # Predict
         try:
             y_pred_scaled = model.predict(X_test, verbose=0)
         except:
             y_pred_scaled = model.predict([X_test, X_test], verbose=0)
             
-        # Inverse Transform Logic
-        # Kita harus cari tahu index kolom 'Close' (Yt) di antara 12 fitur yang tersisa
-        # Biasanya 'Close' (Yt) adalah kolom pertama atau kedua setelah drop.
-        
         try:
-            # Cari posisi kolom 'Close' di dalam list valid_feature_cols
-            # Ingat: Di load_dataset kita rename 'Yt' -> 'Close'
             close_col_idx = valid_feature_cols.index('Close')
-        except ValueError:
-            # Fallback jika nama kolom tidak ketemu, tebak index (biasanya index 0 atau 1)
+        except:
             close_col_idx = 0 
 
         def inverse_close_price(scaled_data_2d):
-            # Dummy array harus selebar jumlah fitur scaler (12)
             dummy = np.zeros((len(scaled_data_2d), data_subset.shape[1]))
-            # Masukkan prediksi ke posisi kolom Close
             dummy[:, close_col_idx] = scaled_data_2d.flatten()
             inv = scaler.inverse_transform(dummy)
             return inv[:, close_col_idx]
 
         y_pred_actual = inverse_close_price(y_pred_scaled)
         
-        # Untuk ground truth, kita ambil langsung dari scaler inverse
-        # Gunakan index yang sama
         y_true_inv_full = scaler.inverse_transform(y_true_scaled)
         y_true_actual = y_true_inv_full[:, close_col_idx]
         
-        # Hitung Metrics
         rmse = math.sqrt(mean_squared_error(y_true_actual, y_pred_actual))
         mape = mean_absolute_percentage_error(y_true_actual, y_pred_actual)
         
         return mape, rmse
-        
     except Exception as e:
-        print(f"Error metrics: {e}")
         return None, None
 
 def show_model_evaluation(df):
-    """
-    Menampilkan halaman Evaluasi Model (Scorecard MAPE & RMSE)
-    """
     st.markdown("""
     <div class='page-header'>
         <h2>Model Evaluation</h2>
@@ -1005,117 +768,51 @@ def show_model_evaluation(df):
     </div>
     """, unsafe_allow_html=True)
 
-    # Tombol untuk memulai kalkulasi (karena berat)
     if st.button("🔄 Hitung Ulang Metrik Evaluasi"):
-        
         results = []
         progress_bar = st.progress(0)
         
         for idx, ticker in enumerate(EMITEN_LIST):
-            # Update status
             progress_bar.progress((idx + 1) / len(EMITEN_LIST))
-            
-            # Load resources
             df_tick = get_ticker_data(df, ticker)
             model = load_trained_model(ticker)
             scaler = load_specific_scaler(ticker)
             
             if model and scaler and not df_tick.empty:
                 mape, rmse = calculate_metrics(df_tick, model, scaler)
-                
                 if mape is not None:
                     results.append({
-                        "Emiten": ticker,
-                        "Model": "GRU Fusion",
-                        "MAPE": f"{mape:.4%}", # Format persentase
-                        "RMSE": f"{rmse:,.2f}", # Format desimal
+                        "Emiten": ticker, "Model": "GRU Fusion",
+                        "MAPE": f"{mape:.4%}", "RMSE": f"{rmse:,.2f}",
                         "Status": "✅ Optimal" if mape < 0.1 else "⚠️ Warning"
                     })
                 else:
-                    results.append({"Emiten": ticker, "Model": "Error", "MAPE": "-", "RMSE": "-", "Status": "❌ Fail"})
+                    results.append({"Emiten": ticker, "Status": "❌ Fail"})
             else:
-                results.append({"Emiten": ticker, "Model": "Not Found", "MAPE": "-", "RMSE": "-", "Status": "❌ Missing"})
+                results.append({"Emiten": ticker, "Status": "❌ Missing"})
         
-        # Tampilkan Tabel Hasil
-        st.markdown("### 🏆 Performance Scorecard")
-        
-        # Konversi ke DataFrame untuk tampilan tabel yang bagus
         results_df = pd.DataFrame(results)
-        
-        # Styling custom untuk tabel
-        st.dataframe(
-            results_df.style.applymap(
-                lambda x: 'color: green; font-weight: bold' if x == '✅ Optimal' else 'color: red' if 'Fail' in str(x) else '',
-                subset=['Status']
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # Insight Box
-        avg_mape = pd.Series([float(x['MAPE'].strip('%'))/100 for x in results if 'MAPE' in x and x['MAPE'] != '-']).mean()
-        
-        st.markdown(f"""
-        <div class="insight-card">
-            <h4>📝 Analisis Performa</h4>
-            <p>Rata-rata MAPE untuk seluruh portofolio emiten adalah <strong>{avg_mape:.2%}</strong>.</p>
-            <p>Nilai RMSE menunjukkan deviasi standar residual prediksi dalam satuan Rupiah. 
-            Semakin kecil nilai MAPE dan RMSE, semakin akurat performa model GRU Fusion dalam memprediksi harga saham.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.dataframe(results_df, use_container_width=True, hide_index=True)
     else:
-        # Tampilan Default sebelum tombol ditekan
-        st.info("Klik tombol di atas untuk menjalankan evaluasi real-time pada 5 model sekaligus.")
-        
-        # Placeholder Static (Agar tidak kosong saat load awal)
-        st.markdown("#### Preview Struktur Evaluasi")
-        dummy_df = pd.DataFrame({
-            "Emiten": EMITEN_LIST,
-            "Model": ["GRU Fusion"] * 5,
-            "MAPE": ["Calculating..."] * 5,
-            "RMSE": ["Calculating..."] * 5,
-            "Status": ["Waiting..."] * 5
-        })
-        st.dataframe(dummy_df, use_container_width=True, hide_index=True)
+        st.info("Klik tombol di atas untuk menjalankan evaluasi.")
 
 # ==========================================
-# 7. MAIN APP LOGIC
+# 7. MAIN APP
 # ==========================================
 
 def main():
-    # Load Main Dataset Sekali Saja
     df = load_dataset()
     
-    if df.empty:
-        st.error("Gagal memuat dataset utama. Pastikan path file CSV benar.")
-        return
-
-    # Sidebar Navigation
     with st.sidebar:
         st.markdown("<div class='sidebar-header'><h2>MENU SKRIPSI</h2></div>", unsafe_allow_html=True)
-        
-        selected_page = st.radio(
-            "",
-            ["🏠 Market Overview", "🔮 Forecast Simulator", "📉 Model Evaluation"],
-            index=0
-        )
-        
+        selected_page = st.radio("", ["🏠 Market Overview", "🔮 Forecast Simulator", "📉 Model Evaluation"], index=0)
         st.markdown("---")
-        st.markdown("""
-        <div style='text-align: center; color: #666;'>
-            <p><strong>Created by:</strong><br>Hana - Statistika ITS</p>
-            <p style='font-size: 0.8em'>Thesis Project 2025</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("<div style='text-align: center; color: #666;'><p>Thesis Project 2025</p></div>", unsafe_allow_html=True)
 
-    # Routing
     if selected_page == "🏠 Market Overview":
         show_market_overview(df)
-    
     elif selected_page == "🔮 Forecast Simulator":
         show_forecast_simulator(df)
-        
     elif selected_page == "📉 Model Evaluation":
         show_model_evaluation(df)
 
